@@ -25,6 +25,7 @@ void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointe
     //    attr.varying = true;
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
     g_glstate.fpe_state.vertexpointer_array.buffer_based = true;
+    SFPEWDebugLog("VP vertex size=%d type=%s stride=%d ptr=%p", size, glEnumToString(type), stride, pointer);
 }
 
 void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
@@ -39,6 +40,7 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         //            .varying = true
     };
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    SFPEWDebugLog("VP normal type=%s stride=%d ptr=%p", glEnumToString(type), stride, pointer);
 }
 
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
@@ -54,6 +56,7 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
         //            .varying = true
     };
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    SFPEWDebugLog("VP color size=%d type=%s stride=%d ptr=%p normalized=1", size, glEnumToString(type), stride, pointer);
 }
 
 void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
@@ -69,6 +72,9 @@ void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* po
         //            .varying = true
     };
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    SFPEWDebugLog("VP texcoord size=%d type=%s stride=%d ptr=%p active=%s",
+                  size, glEnumToString(type), stride, pointer,
+                  glEnumToString(g_glstate.fpe_state.client_active_texture));
 }
 
 void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
@@ -83,6 +89,7 @@ void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         //            .varying = true
     };
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    SFPEWDebugLog("VP index type=%s stride=%d ptr=%p", glEnumToString(type), stride, pointer);
 }
 
 void glEnableClientState(GLenum cap) {
@@ -94,6 +101,8 @@ void glEnableClientState(GLenum cap) {
     g_glstate.fpe_state.vertexpointer_array.enabled_pointers |= mask;
     // LOG_D("Enabled Ptr: 0x%x", g_glstate.fpe_state.vertexpointer_array.enabled_pointers)
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    SFPEWDebugLog("VP enable_client cap=%s enabled_mask=0x%x", glEnumToString(cap),
+                  g_glstate.fpe_state.vertexpointer_array.enabled_pointers);
 }
 
 void glDisableClientState(GLenum cap) {
@@ -105,4 +114,6 @@ void glDisableClientState(GLenum cap) {
     g_glstate.fpe_state.vertexpointer_array.enabled_pointers &= (~mask);
     // LOG_D("Enabled Ptr: 0x%x", g_glstate.fpe_state.vertexpointer_array.enabled_pointers)
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    SFPEWDebugLog("VP disable_client cap=%s enabled_mask=0x%x", glEnumToString(cap),
+                  g_glstate.fpe_state.vertexpointer_array.enabled_pointers);
 }

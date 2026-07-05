@@ -9,6 +9,7 @@
 #include "types.h"
 #include "transformation.h"
 #include "../init.h"
+#include <cstdio>
 
 #define DEBUG 0
 
@@ -40,7 +41,19 @@ void glstate_t::send_uniforms(int program) {
     //    glm::value_ptr(fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)]));
     g_glFuncs.glUniformMatrix4fv(mat_id, 1, GL_FALSE, glm::value_ptr(mat));
 
-    g_glFuncs.glUniform1i(g_glFuncs.glGetUniformLocation(program, "Sampler0"), 0);
+    for (int i = 0; i < MAX_TEX; ++i) {
+        const std::string uniformName = std::format("Sampler{}", i);
+        const GLint samplerLocation = g_glFuncs.glGetUniformLocation(program, uniformName.c_str());
+        if (samplerLocation >= 0) {
+            g_glFuncs.glUniform1i(samplerLocation, i);
+        }
+    }
+    SFPEWDebugLog("FPE uniforms program=%d mv_loc=%d mvp_loc=%d alpha_test=%d fog=%d",
+                  program,
+                  mvmat,
+                  mat_id,
+                  fpe_state.fpe_bools.alpha_test_enable ? 1 : 0,
+                  fpe_state.fpe_bools.fog_enable ? 1 : 0);
 
     if (fpe_state.fpe_bools.fog_enable) {
         GLint fogcolor_id = g_glFuncs.glGetUniformLocation(program, "fogParam.color");
@@ -108,7 +121,8 @@ uint64_t glstate_t::vertex_attrib_hash(bool reset) {
     //    hash.add(&va.starting_pointer, sizeof(va.starting_pointer));
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         bool enabled = ((va.enabled_pointers >> i) & 1);
-        if (enabled || fpe_state.fpe_draw.current_data.sizes.data[i] > 0) {
+        const GLint constantSize = size_for_attribute_index(fpe_state.fpe_draw.current_data.sizes, i);
+        if (enabled || constantSize > 0) {
             hash.add(&i, sizeof(i));
             hash.add(&enabled, sizeof(enabled));
             auto& attr = va.attributes[i];
@@ -116,16 +130,15 @@ uint64_t glstate_t::vertex_attrib_hash(bool reset) {
             if (enabled)
                 hash.add(&attr.size, sizeof(attr.size));
             else
-                hash.add(&fpe_state.fpe_draw.current_data.sizes.data[i],
-                         sizeof(fpe_state.fpe_draw.current_data.sizes.data[i]));
+                hash.add(&constantSize, sizeof(constantSize));
 
             hash.add(&attr.usage, sizeof(attr.usage));
 
             if (enabled) {
                 hash.add(&attr.type, sizeof(attr.type));
                 hash.add(&attr.normalized, sizeof(attr.normalized));
-                //                hash.add(&attr.stride, sizeof(attr.stride));
-                hash.add(&attr.pointer, sizeof(attr.pointer));
+                // Program variants depend on attribute semantics, not transient client-memory addresses.
+                // Hashing `pointer` makes the cache miss on nearly every immediate-mode draw.
             } else {
                 const GLenum t = GL_FLOAT;
                 hash.add(&t, sizeof(t));
@@ -143,6 +156,10 @@ program_t& glstate_t::get_or_generate_program(const uint64_t key) {
         // LOG_D("Generating new shader: 0x%x", key)
         fpe_shader_generator gen(fpe_state);
         program_t program = gen.generate_program();
+        SFPEWDebugLog("FPE program generate key=0x%llx\nVS:\n%s\nFS:\n%s",
+                      static_cast<unsigned long long>(key),
+                      program.vs.c_str(),
+                      program.fs.c_str());
         int prog_id = program.get_program();
         if (prog_id > 0)
             fpe_programs[key] = program;
@@ -180,14 +197,35 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va) const {
     //    auto& va = fpe_state.vertexpointer_array;
     if (!va.dirty) return false;
 
+    auto drainAttrStage = [](const char* op, GLuint cidx, GLenum usage) {
+        if (!SFPEWIsDebugLoggingEnabled()) {
+            return;
+        }
+
+        char stage[96];
+        std::snprintf(stage, sizeof(stage), "fpe.%s.cidx=%u.usage=%s", op, cidx, glEnumToString(usage));
+        SFPEWDrainBackendErrors(stage);
+    };
+
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         bool enabled = ((va.enabled_pointers >> i) & 1);
 
         auto& vp = va.attributes[i];
         if (enabled) {
+            SFPEWDebugLog("FPE attrib pointer idx=%d cidx=%u usage=%s type=%s size=%d stride=%d normalized=%d ptr=%p",
+                          i,
+                          va.cidx(i),
+                          glEnumToString(vp.usage),
+                          glEnumToString(vp.type),
+                          vp.size,
+                          vp.stride,
+                          vp.normalized,
+                          vp.pointer);
             g_glFuncs.glVertexAttribPointer(va.cidx(i), vp.size, vp.type, vp.normalized, vp.stride, vp.pointer);
+            drainAttrStage("vertex_attrib_pointer", va.cidx(i), vp.usage);
 
             g_glFuncs.glEnableVertexAttribArray(va.cidx(i));
+            drainAttrStage("enable_vertex_attrib_array", va.cidx(i), vp.usage);
 
             // LOG_D("attrib #%d, cidx #%u: type = %s, size = %d, stride = %d, usage = %s, ptr = %p", i, va.cidx(i),
             //      glEnumToString(vp.type), vp.size, vp.stride, glEnumToString(vp.usage), vp.pointer)
@@ -196,20 +234,26 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va) const {
             case GL_COLOR_ARRAY:
                 if (fpe_state.fpe_draw.current_data.sizes.color_size > 0) {
                     const auto& v = fpe_state.fpe_draw.current_data.color;
+                    SFPEWDebugLog("FPE attrib const color cidx=%u value=(%.3f, %.3f, %.3f, %.3f)",
+                                  va.cidx(i), v[0], v[1], v[2], v[3]);
                     // LOG_D("attrib #%d, cidx #%u: type = %s, usage = %s, value = (%.2f, %.2f, %.2f, %.2f) (disabled)",
                     // i,
                     //      va.cidx(i), glEnumToString(vp.type), glEnumToString(vp.usage), v[0], v[1], v[2], v[3])
 
                     g_glFuncs.glVertexAttrib4fv(va.cidx(i), glm::value_ptr(v));
+                    drainAttrStage("vertex_attrib4fv", va.cidx(i), vp.usage);
                 }
                 break;
             case GL_NORMAL_ARRAY:
                 if (fpe_state.fpe_draw.current_data.sizes.normal_size > 0) {
                     const auto& v = fpe_state.fpe_draw.current_data.normal;
+                    SFPEWDebugLog("FPE attrib const normal cidx=%u value=(%.3f, %.3f, %.3f)",
+                                  va.cidx(i), v[0], v[1], v[2]);
                     // LOG_D("attrib #%d, cidx #%u: type = %s, usage = %s, value = (%.2f, %.2f, %.2f) (disabled)", i,
                     //      va.cidx(i), glEnumToString(vp.type), glEnumToString(vp.usage), v[0], v[1], v[2])
 
                     g_glFuncs.glVertexAttrib3fv(va.cidx(i), glm::value_ptr(v));
+                    drainAttrStage("vertex_attrib3fv", va.cidx(i), vp.usage);
                 }
                 break;
             default:
@@ -217,7 +261,10 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va) const {
                 break;
             }
 
-            if (va.cidx(i) != ~0u) g_glFuncs.glDisableVertexAttribArray(va.cidx(i));
+            if (va.cidx(i) != ~0u) {
+                g_glFuncs.glDisableVertexAttribArray(va.cidx(i));
+                drainAttrStage("disable_vertex_attrib_array", va.cidx(i), vp.usage);
+            }
         }
     }
 

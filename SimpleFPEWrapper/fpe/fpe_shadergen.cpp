@@ -1101,10 +1101,12 @@ const char* glEnumToString(GLenum e) {
     }
 }
 
-constexpr std::string_view mg_shader_header = "#version 300 es\n"
-                                              "// MobileGlues FPE Shader\n"
-                                              "precision highp float;\n"
-                                              "precision highp int;\n";
+constexpr std::string_view mg_shader_header_es = "#version 300 es\n"
+                                                 "// MobileGlues FPE Shader\n"
+                                                 "precision highp float;\n"
+                                                 "precision highp int;\n";
+constexpr std::string_view mg_shader_header_mobilegl = "#version 460 core\n"
+                                                       "// MobileGlues FPE Shader\n";
 constexpr std::string_view mg_vs_header = "// ** Vertex Shader **\n";
 constexpr std::string_view mg_fs_header = "// ** Fragment Shader **\n";
 constexpr std::string_view mg_fog_linear_func = "float fog_linear(float distance, float start, float end) {\n"
@@ -1276,8 +1278,9 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
 #endif
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         bool enabled = ((vpa.enabled_pointers >> i) & 1);
+        const GLint constantSize = size_for_attribute_index(state.fpe_draw.current_data.sizes, i);
 
-        if (enabled || state.fpe_draw.current_data.sizes.data[i] > 0) {
+        if (enabled || constantSize > 0) {
             auto& vp = vpa.attributes[i];
 
             if (enabled) { // LOG_D("attrib #%d, cidx #%u: type = %s, size = %d, stride = %d, usage = %s, ptr = %p", i,
@@ -1285,7 +1288,7 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
                            //      glEnumToString(vp.type), vp.size, vp.stride, glEnumToString(vp.usage), vp.pointer)
             } else {
                 // LOG_D("attrib #%d, cidx #%u: type = %s, usage = %s, size = %d (disabled)", i, vpa.cidx(i),
-                //         glEnumToString(vp.type), glEnumToString(vp.usage), state.fpe_draw.current_data.sizes.data[i])
+                //         glEnumToString(vp.type), glEnumToString(vp.usage), constantSize)
             }
 
             std::string in_name = enabled ? vp2in_name(vp.usage, i) : vp2in_name(idx2vp(i), i);
@@ -1294,13 +1297,18 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
             vs += std::format("layout (location = {}) in {} {};\n", vpa.cidx(i), type, in_name);
 
             if (vp.usage == GL_VERTEX_ARRAY) { // GL_VERTEX_ARRAY will be written into gl_Position
+                scratch.position_size = enabled ? vp.size : state.fpe_draw.current_data.sizes.vertex_size;
                 continue;
             }
 
             std::string out_name = enabled ? vp2out_name(vp.usage, i) : vp2out_name(idx2vp(i), i);
+            std::string linkageType = type;
+            if (vp.usage == GL_COLOR_ARRAY) {
+                linkageType = "vec4";
+            }
             std::string linkage;
 
-            linkage += type;
+            linkage += linkageType;
             linkage += ' ';
             linkage += out_name;
             linkage += ";\n";
@@ -1311,10 +1319,27 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
             scratch.last_stage_linkage += "in " + linkage;
 
             // TODO: if not this simple? Fog / Vertex light?
-            scratch.vs_body += out_name;
-            scratch.vs_body += " = ";
-            scratch.vs_body += in_name;
-            scratch.vs_body += ";\n";
+            if (vp.usage == GL_COLOR_ARRAY) {
+                switch (vp.size) {
+                case 1:
+                    scratch.vs_body += std::format("{} = vec4({}, 0.0, 0.0, 1.0);\n", out_name, in_name);
+                    break;
+                case 2:
+                    scratch.vs_body += std::format("{} = vec4({}, 0.0, 1.0);\n", out_name, in_name);
+                    break;
+                case 3:
+                    scratch.vs_body += std::format("{} = vec4({}, 1.0);\n", out_name, in_name);
+                    break;
+                default:
+                    scratch.vs_body += std::format("{} = {};\n", out_name, in_name);
+                    break;
+                }
+            } else {
+                scratch.vs_body += out_name;
+                scratch.vs_body += " = ";
+                scratch.vs_body += in_name;
+                scratch.vs_body += ";\n";
+            }
 
             if (vp.usage == GL_COLOR_ARRAY) scratch.has_vertex_color = true;
 
@@ -1340,9 +1365,26 @@ void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, st
 }
 
 void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
-    vs += "void main() {\n"
-          //            "   gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n";
-          "    gl_Position = ModelViewProjMat * vec4(Position, 1.0);\n";
+    std::string positionExpr = "vec4(Position, 1.0)";
+    switch (scratch.position_size) {
+    case 1:
+        positionExpr = "vec4(Position, 0.0, 0.0, 1.0)";
+        break;
+    case 2:
+        positionExpr = "vec4(Position, 0.0, 1.0)";
+        break;
+    case 4:
+        positionExpr = "Position";
+        break;
+    default:
+        break;
+    }
+
+    vs += "void main() {\n";
+    //            "   gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n";
+    vs += "    gl_Position = ModelViewProjMat * ";
+    vs += positionExpr;
+    vs += ";\n";
     if (state.fpe_bools.fog_enable) {
         vs += "    vec4 viewPosition = ModelViewMat * vec4(Position, 1.0);\n"
               "    vViewPosition = viewPosition.xyz;\n";
@@ -1358,7 +1400,7 @@ void add_fs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, st
     //        fs += std::format(
     //                "uniform sampler2D Sampler{};\n", 0);
     for (int i = 0; i < MAX_TEX; ++i) {
-        if (scratch.has_texcoord[i]) {
+        if (scratch.has_texcoord[i] && state.fpe_bools.texture_2d_enable[i]) {
             fs += std::format("uniform sampler2D Sampler{};\n", i);
         }
     }
@@ -1415,11 +1457,29 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     //    }
 
     for (int i = 0; i < MAX_TEX; ++i) {
-        if (i > 0) break;
-        if (scratch.has_texcoord[i]) {
+        if (!scratch.has_texcoord[i] || !state.fpe_bools.texture_2d_enable[i]) {
+            continue;
+        }
+        if (state.fpe_bools.alpha_test_enable) {
             fs += std::format("\n"
                               "    // Texturing #{0}\n"
                               "    vec4 texcolor{0} = texture(Sampler{0}, texCoord{0});\n"
+                              "    // MobileGL can occasionally expose alpha-mask textures as RGB=0/A>0.\n"
+                              "    // Recover the expected luminance from alpha so text and GUI glyphs remain visible.\n"
+                              "    if (texcolor{0}.a > 0.0 && dot(texcolor{0}.rgb, texcolor{0}.rgb) == 0.0) {{\n"
+                              "        texcolor{0}.rgb = vec3(texcolor{0}.a);\n"
+                              "    }}\n"
+                              "    color *= texcolor{0};\n",
+                              i);
+        } else {
+            fs += std::format("\n"
+                              "    // Texturing #{0}\n"
+                              "    vec4 texcolor{0} = texture(Sampler{0}, texCoord{0});\n"
+                              "    // MobileGL can occasionally expose alpha-mask textures as RGB=0/A>0.\n"
+                              "    // Recover the expected luminance from alpha so text and GUI glyphs remain visible.\n"
+                              "    if (texcolor{0}.a > 0.0 && dot(texcolor{0}.rgb, texcolor{0}.rgb) == 0.0) {{\n"
+                              "        texcolor{0}.rgb = vec3(texcolor{0}.a);\n"
+                              "    }}\n"
                               "    color *= texcolor{0};\n",
                               i);
         }
@@ -1463,9 +1523,22 @@ program_t fpe_shader_generator::generate_program() {
     return program;
 }
 
+static std::string_view get_mg_shader_header() {
+    if (g_glFuncs.glGetString != nullptr) {
+        const auto* vendor = reinterpret_cast<const char*>(g_glFuncs.glGetString(GL_VENDOR));
+        const auto* version = reinterpret_cast<const char*>(g_glFuncs.glGetString(GL_VERSION));
+        const bool usesMobileGL = (vendor && std::strstr(vendor, "MobileGL") != nullptr) ||
+                                  (version && std::strstr(version, "MobileGL") != nullptr);
+        if (usesMobileGL) {
+            return mg_shader_header_mobilegl;
+        }
+    }
+    return mg_shader_header_es;
+}
+
 std::string fpe_shader_generator::vertex_shader(const fixed_function_state_t& state, scratch_t& scratch) {
     std::string shader;
-    shader += mg_shader_header;
+    shader += get_mg_shader_header();
     shader += mg_vs_header;
 
     shader += "\n";
@@ -1481,7 +1554,7 @@ std::string fpe_shader_generator::vertex_shader(const fixed_function_state_t& st
 std::string fpe_shader_generator::fragment_shader(const fixed_function_state_t& state, scratch_t& scratch) {
     std::string shader;
 
-    shader += mg_shader_header;
+    shader += get_mg_shader_header();
     shader += mg_fs_header;
 
     shader += "\n";
@@ -1519,9 +1592,11 @@ int program_t::compile_shader(GLenum shader_type, const char* src) {
 
     if (!success) {
         g_glFuncs.glGetShaderInfoLog(shader, 1024, NULL, compile_info);
-
-        // LOG_E("%s: %s shader compile error: %s\nsrc:\n%s", __func__,
-        //      (shader_type == GL_VERTEX_SHADER) ? "vertex" : "fragment", compile_info, src);
+        std::fprintf(stderr,
+                     "SFPEW_FPE_SHADER_COMPILE_ERROR type=%s log=%s\nsrc:\n%s\n",
+                     (shader_type == GL_VERTEX_SHADER) ? "vertex" : "fragment",
+                     compile_info,
+                     src ? src : "<null>");
 #if DEBUG || GLOBAL_DEBUG
         abort();
 #endif
@@ -1547,8 +1622,7 @@ int program_t::link_program(GLuint vs, GLuint fs) {
 
     if (!success) {
         g_glFuncs.glGetProgramInfoLog(program, 1024, NULL, compile_info);
-
-        // LOG_E("program link error: %s", compile_info);
+        std::fprintf(stderr, "SFPEW_FPE_PROGRAM_LINK_ERROR log=%s\n", compile_info);
 #if DEBUG || GLOBAL_DEBUG
         abort();
 #endif

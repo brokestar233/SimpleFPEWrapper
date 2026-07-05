@@ -40,9 +40,15 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     case GL_LIGHT5:
     case GL_LIGHT6:
     case GL_LIGHT7:
-    case GL_TEXTURE_2D:
     case GL_RESCALE_NORMAL:
         return true;
+    case GL_TEXTURE_2D: {
+        const GLint textureIndex = static_cast<GLint>(g_glstate.fpe_state.active_texture - GL_TEXTURE0);
+        if (0 <= textureIndex && textureIndex < MAX_TEX) {
+            bools->texture_2d_enable[textureIndex] = enable;
+        }
+        return true;
+    }
     default:
         break;
     }
@@ -54,10 +60,12 @@ void glEnable(GLenum cap) {
     // LOG_D("glEnable, cap = %s", glEnumToString(cap));
 
     LIST_RECORD(glEnable, {}, cap)
+    SFPEWDebugLog("STATE enable cap=%s", glEnumToString(cap));
 
     if (hijack_fpe_states(cap, true, &g_glstate.fpe_state.fpe_bools)) return;
 
     g_glFuncs.glEnable(cap);
+    SFPEWDrainBackendErrors("state.enable");
 }
 
 void glDisable(GLenum cap) {
@@ -65,10 +73,110 @@ void glDisable(GLenum cap) {
     // LOG_D("glDisable, cap = %s", glEnumToString(cap))
 
     LIST_RECORD(glDisable, {}, cap)
+    SFPEWDebugLog("STATE disable cap=%s", glEnumToString(cap));
 
     if (hijack_fpe_states(cap, false, &g_glstate.fpe_state.fpe_bools)) return;
 
     g_glFuncs.glDisable(cap);
+    SFPEWDrainBackendErrors("state.disable");
+}
+
+void glBlendFunc(GLenum sfactor, GLenum dfactor) {
+    LIST_RECORD(glBlendFunc, {}, sfactor, dfactor)
+    SFPEWDebugLog("STATE blend_func src=%s dst=%s", glEnumToString(sfactor), glEnumToString(dfactor));
+
+    g_glFuncs.glBlendFunc(sfactor, dfactor);
+    SFPEWDrainBackendErrors("state.blend_func");
+}
+
+void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha) {
+    LIST_RECORD(glBlendFuncSeparate, {}, sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha)
+    SFPEWDebugLog("STATE blend_func_separate src_rgb=%s dst_rgb=%s src_alpha=%s dst_alpha=%s",
+                  glEnumToString(sfactorRGB),
+                  glEnumToString(dfactorRGB),
+                  glEnumToString(sfactorAlpha),
+                  glEnumToString(dfactorAlpha));
+
+    g_glFuncs.glBlendFuncSeparate(sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha);
+    SFPEWDrainBackendErrors("state.blend_func_separate");
+}
+
+void glBlendEquation(GLenum mode) {
+    LIST_RECORD(glBlendEquation, {}, mode)
+    SFPEWDebugLog("STATE blend_equation mode=%s", glEnumToString(mode));
+
+    g_glFuncs.glBlendEquation(mode);
+    SFPEWDrainBackendErrors("state.blend_equation");
+}
+
+void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
+    LIST_RECORD(glBlendEquationSeparate, {}, modeRGB, modeAlpha)
+    SFPEWDebugLog("STATE blend_equation_separate rgb=%s alpha=%s",
+                  glEnumToString(modeRGB),
+                  glEnumToString(modeAlpha));
+
+    g_glFuncs.glBlendEquationSeparate(modeRGB, modeAlpha);
+    SFPEWDrainBackendErrors("state.blend_equation_separate");
+}
+
+void glBlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
+    LIST_RECORD(glBlendColor, {}, red, green, blue, alpha)
+    SFPEWDebugLog("STATE blend_color r=%.3f g=%.3f b=%.3f a=%.3f", red, green, blue, alpha);
+
+    g_glFuncs.glBlendColor(red, green, blue, alpha);
+    SFPEWDrainBackendErrors("state.blend_color");
+}
+
+void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) {
+    LIST_RECORD(glColorMask, {}, red, green, blue, alpha)
+    SFPEWDebugLog("STATE color_mask r=%d g=%d b=%d a=%d", red ? 1 : 0, green ? 1 : 0, blue ? 1 : 0, alpha ? 1 : 0);
+
+    g_glFuncs.glColorMask(red, green, blue, alpha);
+    SFPEWDrainBackendErrors("state.color_mask");
+}
+
+void glCullFace(GLenum mode) {
+    LIST_RECORD(glCullFace, {}, mode)
+    SFPEWDebugLog("STATE cull_face mode=%s", glEnumToString(mode));
+
+    g_glFuncs.glCullFace(mode);
+    SFPEWDrainBackendErrors("state.cull_face");
+}
+
+void glDepthFunc(GLenum func) {
+    LIST_RECORD(glDepthFunc, {}, func)
+    SFPEWDebugLog("STATE depth_func func=%s", glEnumToString(func));
+
+    g_glFuncs.glDepthFunc(func);
+    SFPEWDrainBackendErrors("state.depth_func");
+}
+
+void glDepthMask(GLboolean flag) {
+    LIST_RECORD(glDepthMask, {}, flag)
+    SFPEWDebugLog("STATE depth_mask flag=%d", flag ? 1 : 0);
+
+    g_glFuncs.glDepthMask(flag);
+    SFPEWDrainBackendErrors("state.depth_mask");
+}
+
+void glFrontFace(GLenum mode) {
+    LIST_RECORD(glFrontFace, {}, mode)
+    SFPEWDebugLog("STATE front_face mode=%s", glEnumToString(mode));
+
+    g_glFuncs.glFrontFace(mode);
+    SFPEWDrainBackendErrors("state.front_face");
+}
+
+void glActiveTexture(GLenum texture) {
+    LIST_RECORD(glActiveTexture, {}, texture)
+    SFPEWDebugLog("STATE active_texture=%s", glEnumToString(texture));
+
+    if (GL_TEXTURE0 <= texture && texture < GL_TEXTURE0 + MAX_TEX) {
+        g_glstate.fpe_state.active_texture = texture;
+    }
+
+    g_glFuncs.glActiveTexture(texture);
+    SFPEWDrainBackendErrors("state.active_texture");
 }
 
 void glClientActiveTexture(GLenum texture) {
@@ -78,6 +186,7 @@ void glClientActiveTexture(GLenum texture) {
     // Todo: this function can be added to displayList when GL 1.3+ is disabled
 
     g_glstate.fpe_state.client_active_texture = texture;
+    SFPEWDebugLog("STATE client_active_texture=%s", glEnumToString(texture));
 }
 
 void glAlphaFunc(GLenum func, GLclampf ref) {
@@ -85,6 +194,7 @@ void glAlphaFunc(GLenum func, GLclampf ref) {
     // LOG_D("glAlphaFunc(%s, %f)", glEnumToString(func), ref)
 
     LIST_RECORD(glAlphaFunc, {}, func, ref)
+    SFPEWDebugLog("STATE alpha_func func=%s ref=%.3f", glEnumToString(func), ref);
 
     g_glstate.fpe_state.alpha_func = func;
     g_glstate.fpe_uniform.alpha_ref = ref;
@@ -111,11 +221,12 @@ void glFogf(GLenum pname, GLfloat param) {
     case GL_FOG_MODE:
     case GL_FOG_INDEX:
     case GL_FOG_COORD_SRC:
-        SELF_CALL(glFogi, pname, (GLint)param)
+        SELF_CALL(glFogi, pname, (GLint)param);
         return;
 
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -140,10 +251,11 @@ void glFogi(GLenum pname, GLint param) {
     case GL_FOG_DENSITY:
     case GL_FOG_START:
     case GL_FOG_END:
-        SELF_CALL(glFogf, pname, (GLfloat)param)
+        SELF_CALL(glFogf, pname, (GLfloat)param);
         return;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -157,12 +269,12 @@ void glFogfv(GLenum pname, const GLfloat* params) {
     case GL_FOG_MODE:
     case GL_FOG_INDEX:
     case GL_FOG_COORD_SRC:
-        SELF_CALL(glFogi, pname, (GLint)params[0])
+        SELF_CALL(glFogi, pname, (GLint)params[0]);
         break;
     case GL_FOG_DENSITY:
     case GL_FOG_START:
     case GL_FOG_END:
-        SELF_CALL(glFogf, pname, params[0])
+        SELF_CALL(glFogf, pname, params[0]);
         break;
     case GL_FOG_COLOR: {
         auto& fcolor = g_glstate.fpe_uniform.fog_color;
@@ -173,6 +285,7 @@ void glFogfv(GLenum pname, const GLfloat* params) {
     }
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -195,15 +308,16 @@ void glFogiv(GLenum pname, const GLint* params) {
     case GL_FOG_MODE:
     case GL_FOG_INDEX:
     case GL_FOG_COORD_SRC:
-        SELF_CALL(glFogi, pname, params[0])
+        SELF_CALL(glFogi, pname, params[0]);
         break;
     case GL_FOG_DENSITY:
     case GL_FOG_START:
     case GL_FOG_END:
-        SELF_CALL(glFogf, pname, (GLfloat)params[0])
+        SELF_CALL(glFogf, pname, (GLfloat)params[0]);
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -242,6 +356,7 @@ void glLightf(GLenum light, GLenum pname, GLfloat param) {
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -251,7 +366,7 @@ void glLighti(GLenum light, GLenum pname, GLint param) {
 
     LIST_RECORD(glLighti, {}, light, pname, param)
 
-    SELF_CALL(glLightf, light, pname, (GLfloat)param)
+    SELF_CALL(glLightf, light, pname, (GLfloat)param);
 }
 
 void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
@@ -266,7 +381,7 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
     case GL_CONSTANT_ATTENUATION:
     case GL_LINEAR_ATTENUATION:
     case GL_QUADRATIC_ATTENUATION:
-        SELF_CALL(glLightf, light, pname, params[0])
+        SELF_CALL(glLightf, light, pname, params[0]);
         break;
 
     case GL_AMBIENT: {
@@ -296,6 +411,7 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
     }
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname);
+        break;
     }
 }
 
@@ -319,14 +435,15 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
     case GL_SPECULAR:
     case GL_POSITION: {
         glm::vec4 vec = glm::make_vec4(params);
-        SELF_CALL(glLightfv, light, pname, glm::value_ptr(vec))
+        SELF_CALL(glLightfv, light, pname, glm::value_ptr(vec));
     }
     case GL_SPOT_DIRECTION: {
         glm::vec3 vec = glm::make_vec3(params);
-        SELF_CALL(glLightfv, light, pname, glm::value_ptr(vec))
+        SELF_CALL(glLightfv, light, pname, glm::value_ptr(vec));
     }
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -340,9 +457,10 @@ void glLightModelf(GLenum pname, GLfloat param) {
     case GL_LIGHT_MODEL_LOCAL_VIEWER:
     case GL_LIGHT_MODEL_COLOR_CONTROL:
     case GL_LIGHT_MODEL_TWO_SIDE:
-        SELF_CALL(glLightModeli, pname, (GLint)param)
+        SELF_CALL(glLightModeli, pname, (GLint)param);
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -364,6 +482,7 @@ void glLightModeli(GLenum pname, GLint param) {
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -384,6 +503,7 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -396,7 +516,7 @@ void glLightModeliv(GLenum pname, const GLint* params) {
     switch (pname) {
     case GL_LIGHT_MODEL_AMBIENT: {
         glm::vec4 v = glm::make_vec4(params);
-        SELF_CALL(glLightModelfv, pname, glm::value_ptr(v))
+        SELF_CALL(glLightModelfv, pname, glm::value_ptr(v));
         break;
     }
     case GL_LIGHT_MODEL_COLOR_CONTROL:
@@ -406,5 +526,6 @@ void glLightModeliv(GLenum pname, const GLint* params) {
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }

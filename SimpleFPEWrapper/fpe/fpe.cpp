@@ -7,9 +7,131 @@
 // End of Source File Header
 
 #include "fpe.hpp"
+#include <cstdint>
+#include <cstring>
+#include <vector>
 #include <glm/gtc/type_ptr.hpp>
+#include "pointer_utils.h"
 
 #define DEBUG 0
+
+namespace {
+    bool AttributeUsesClientMemory(const vertexattribute_t& attr) {
+        if (attr.pointer == nullptr || attr.size <= 0) {
+            return false;
+        }
+
+        const int typeBytes = PointerUtils::type_to_bytes(attr.type);
+        if (typeBytes <= 0) {
+            return false;
+        }
+
+        const std::uintptr_t pointerValue = reinterpret_cast<std::uintptr_t>(attr.pointer);
+        const std::uintptr_t elementSize = static_cast<std::uintptr_t>(typeBytes * attr.size);
+        const std::uintptr_t effectiveStride =
+            attr.stride > 0 ? static_cast<std::uintptr_t>(attr.stride) : elementSize;
+        return pointerValue > effectiveStride;
+    }
+
+    bool AnyEnabledAttributeUsesClientMemory(const vertex_pointer_array_t& vpa) {
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            const bool enabled = ((vpa.enabled_pointers >> i) & 1) != 0;
+            if (!enabled) {
+                continue;
+            }
+
+            if (AttributeUsesClientMemory(vpa.attributes[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool BuildPackedClientArrayLayout(const vertex_pointer_array_t& source,
+                                      GLint first,
+                                      GLsizei count,
+                                      const GLint* constant_sizes,
+                                      vertex_pointer_array_t& packedLayout,
+                                      std::vector<std::uint8_t>& packedData) {
+        struct CopyInfo {
+            const std::uint8_t* sourceBase = nullptr;
+            std::size_t sourceStride = 0;
+            std::size_t elementSize = 0;
+            std::size_t destOffset = 0;
+        };
+
+        packedLayout.reset();
+        packedLayout.enabled_pointers = source.enabled_pointers;
+        packedLayout.dirty = true;
+        packedLayout.buffer_based = true;
+
+        std::vector<CopyInfo> copies(VERTEX_POINTER_COUNT);
+        std::size_t packedStride = 0;
+
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            const bool enabled = ((source.enabled_pointers >> i) & 1) != 0;
+            if (!enabled) {
+                continue;
+            }
+
+            const auto& srcAttr = source.attributes[i];
+            const int typeBytes = PointerUtils::type_to_bytes(srcAttr.type);
+            if (srcAttr.pointer == nullptr || srcAttr.size <= 0 || typeBytes <= 0) {
+                return false;
+            }
+
+            const std::size_t elementSize = static_cast<std::size_t>(srcAttr.size) * static_cast<std::size_t>(typeBytes);
+            const std::size_t sourceStride =
+                srcAttr.stride > 0 ? static_cast<std::size_t>(srcAttr.stride) : elementSize;
+
+            auto& dstAttr = packedLayout.attributes[i];
+            dstAttr = srcAttr;
+            dstAttr.pointer = reinterpret_cast<const void*>(packedStride);
+            dstAttr.stride = 0;
+
+            copies[i] = {
+                .sourceBase = reinterpret_cast<const std::uint8_t*>(srcAttr.pointer),
+                .sourceStride = sourceStride,
+                .elementSize = elementSize,
+                .destOffset = packedStride,
+            };
+            packedStride += elementSize;
+        }
+
+        if (packedStride == 0) {
+            return false;
+        }
+
+        packedLayout.stride = static_cast<GLsizei>(packedStride);
+        packedLayout.starting_pointer = nullptr;
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            const bool enabled = ((packedLayout.enabled_pointers >> i) & 1) != 0;
+            if (!enabled) {
+                continue;
+            }
+            packedLayout.attributes[i].stride = packedLayout.stride;
+        }
+        packedLayout.generate_compressed_index(constant_sizes);
+
+        packedData.resize(static_cast<std::size_t>(count) * packedStride);
+        for (GLsizei vertexIndex = 0; vertexIndex < count; ++vertexIndex) {
+            const std::size_t destVertexBase = static_cast<std::size_t>(vertexIndex) * packedStride;
+            const std::size_t sourceVertexIndex = static_cast<std::size_t>(first + vertexIndex);
+            for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+                const bool enabled = ((packedLayout.enabled_pointers >> i) & 1) != 0;
+                if (!enabled) {
+                    continue;
+                }
+
+                const auto& copy = copies[i];
+                std::memcpy(packedData.data() + destVertexBase + copy.destOffset,
+                            copy.sourceBase + sourceVertexIndex * copy.sourceStride,
+                            copy.elementSize);
+            }
+        }
+        return true;
+    }
+} // namespace
 
 glstate_t& glstate_t::get_instance() {
     static glstate_t s_glstate;
@@ -95,6 +217,8 @@ int init_fpe() {
     g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
 
     g_glFuncs.glBindVertexArray(0);
+    SFPEWDebugLog("FPE init vao=%u vbo=%u ibo=%u", g_glstate.fpe_state.fpe_vao, g_glstate.fpe_state.fpe_vbo,
+                  g_glstate.fpe_state.fpe_ibo);
 
     return 0;
 }
@@ -112,13 +236,26 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     // Need to generate_compressed_index first (shadergen will use that)
     auto& raw_vpa = g_glstate.fpe_state.vertexpointer_array;
     auto& vpa = g_glstate.fpe_state.normalized_vpa;
-    vpa = raw_vpa.normalize();
-    vpa.generate_compressed_index(g_glstate.fpe_state.fpe_draw.current_data.sizes.data);
+    std::vector<std::uint8_t> packedClientData;
+    const auto attributeSizes = build_attribute_size_table(g_glstate.fpe_state.fpe_draw.current_data.sizes);
+    const bool usesClientMemory = AnyEnabledAttributeUsesClientMemory(raw_vpa);
+    if (usesClientMemory) {
+        if (!BuildPackedClientArrayLayout(raw_vpa, *first, *count, attributeSizes.data(),
+                                          vpa, packedClientData)) {
+            SFPEWDebugLog("FPE failed to build packed client-array layout");
+            return 0;
+        }
+        *first = 0;
+    } else {
+        vpa = raw_vpa.normalize();
+        vpa.generate_compressed_index(attributeSizes.data());
+    }
     // kinda cursed...
-    raw_vpa.generate_compressed_index(g_glstate.fpe_state.fpe_draw.current_data.sizes.data);
+    raw_vpa.generate_compressed_index(attributeSizes.data());
     //    g_glFuncs.glGenVertexArrays(1, &vpa.fpe_vao);
     // LOG_D("fpe_vao: %d", g_glstate.fpe_state.fpe_vao)
     g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
+    SFPEWDrainBackendErrors("fpe.bind_vertex_array");
 
     auto key = g_glstate.program_hash();
     // LOG_D("%s: key=0x%x", __func__, key)
@@ -126,13 +263,44 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     int prog_id = prog.get_program();
     // if (prog_id < 0) LOG_D("Error: FPE shader link failed!")
     g_glFuncs.glUseProgram(prog_id);
+    SFPEWDrainBackendErrors("fpe.use_program");
 
-    GLint prev_vbo = 0;
-    g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_vbo);
+    SFPEWDebugLog("FPE commit mode=%s first=%d count=%d key=0x%llx program=%d vao=%u stride=%d start=%p enabled=0x%x client_mem=%d",
+                  glEnumToString(*mode),
+                  *first,
+                  *count,
+                  static_cast<unsigned long long>(key),
+                  prog_id,
+                  g_glstate.fpe_state.fpe_vao,
+                  vpa.stride,
+                  vpa.starting_pointer,
+                  vpa.enabled_pointers,
+                  usesClientMemory ? 1 : 0);
 
-    // Ugh...Why binding vbo is required BEFORE calling VertexAttrib* functions?
-    if (prev_vbo == 0) {
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        const bool enabled = ((vpa.enabled_pointers >> i) & 1) != 0;
+        const GLint constantSize = size_for_attribute_index(g_glstate.fpe_state.fpe_draw.current_data.sizes, i);
+        if (!enabled && constantSize <= 0) {
+            continue;
+        }
+        const auto& vp = vpa.attributes[i];
+        SFPEWDebugLog(
+            "FPE attr idx=%d cidx=%u enabled=%d usage=%s type=%s size=%d stride=%d normalized=%d ptr=%p constant_size=%d",
+            i,
+            vpa.cidx(i),
+            enabled ? 1 : 0,
+            glEnumToString(vp.usage),
+            glEnumToString(vp.type),
+            enabled ? vp.size : constantSize,
+            vp.stride,
+            vp.normalized,
+            vp.pointer,
+            constantSize);
+    }
+
+    if (usesClientMemory) {
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
+        SFPEWDrainBackendErrors("fpe.bind_array_buffer");
     }
 
     // LOG_D("starting_ptr = %p", vpa.starting_pointer)
@@ -140,40 +308,22 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
 
     g_glstate.send_vertex_attributes(vpa);
     vpa.dirty = false;
+    SFPEWDrainBackendErrors("fpe.send_vertex_attributes");
 
     int ret = 0;
 
     // Making sure it is a valid pointer rather than an offset into the buffer
-    if (vpa.starting_pointer != nullptr && vpa.starting_pointer > (void*)vpa.stride) {
-        // LOG_D("VB @ 0x%x, size = %d * %d = %d", vpa.starting_pointer, *count, vpa.stride, *count * vpa.stride)
-
-#if DEBUG || GLOBAL_DEBUG
-        //    for (int j = 0; j < *count; ++j) {
-//        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
-//            bool enabled = ((vpa.enabled_pointers >> i) & 1);
-//
-//            if (!enabled)
-//                continue;
-//
-//            auto &vp = vpa.pointers[i];
-//
-//            // const void* ptr, GLenum type, int size, int stride, int offset, int i
-//            log_vtx_attrib_data(vpa.starting_pointer, vp.type, vp.size, vp.stride,
-//                                (const char*)vp.pointer - (const char*)vpa.starting_pointer, j);
-//
-//        }
-//        // LOG_D("")
-//    }
-#endif
-
-        // LOG_D("glBufferData: size = %d, data = 0x%x -> GL_ARRAY_BUFFER (%d)", *count * vpa.stride,
-        // vpa.starting_pointer,
-        //      g_glstate.fpe_state.fpe_vbo)
-
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, *count * vpa.stride, vpa.starting_pointer, GL_DYNAMIC_DRAW);
+    if (usesClientMemory) {
+        g_glFuncs.glBufferData(GL_ARRAY_BUFFER,
+                               static_cast<GLsizeiptr>(packedClientData.size()),
+                               packedClientData.data(),
+                               GL_DYNAMIC_DRAW);
+        SFPEWDebugLog("FPE uploaded packed client memory bytes=%zu stride=%d",
+                      packedClientData.size(),
+                      vpa.stride);
 
     } else {
-        // LOG_D("Using already bound VB")
+        SFPEWDebugLog("FPE using bound vertex buffer path");
     }
 
     if (*mode == GL_QUADS) {
@@ -192,9 +342,11 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
 
         *mode = GL_TRIANGLES;
         ret = 1;
+        SFPEWDebugLog("FPE converted quads to triangles new_count=%d", *count);
     }
 
     g_glstate.send_uniforms(prog_id);
+    SFPEWDrainBackendErrors("fpe.send_uniforms");
     vpa.reset();
     //    vpa.starting_pointer = 0;
     //    vpa.stride = 0;

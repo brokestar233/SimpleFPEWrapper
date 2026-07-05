@@ -8,6 +8,7 @@
 
 #include "EGL/egl.h"
 #include "init.h"
+#include "fpe/state.h"
 #include "fpe/transformation.h"
 
 #define GETPROC(name, var)                                                                                             \
@@ -15,7 +16,33 @@
         return (__eglMustCastToProperFunctionPointerType)name;                                                         \
     }
 
+namespace {
+    bool isBlockedDebugProc(const char* name) {
+        return std::strcmp(name, "glDebugMessageControl") == 0 ||
+               std::strcmp(name, "glDebugMessageInsert") == 0 ||
+               std::strcmp(name, "glDebugMessageCallback") == 0 ||
+               std::strcmp(name, "glGetDebugMessageLog") == 0 ||
+               std::strcmp(name, "glPushDebugGroup") == 0 ||
+               std::strcmp(name, "glPopDebugGroup") == 0 ||
+               std::strcmp(name, "glObjectLabel") == 0 ||
+               std::strcmp(name, "glGetObjectLabel") == 0 ||
+               std::strcmp(name, "glObjectPtrLabel") == 0 ||
+               std::strcmp(name, "glGetObjectPtrLabel") == 0 ||
+               std::strcmp(name, "glDebugMessageControlARB") == 0 ||
+               std::strcmp(name, "glDebugMessageInsertARB") == 0 ||
+               std::strcmp(name, "glDebugMessageCallbackARB") == 0 ||
+               std::strcmp(name, "glGetDebugMessageLogARB") == 0 ||
+               std::strcmp(name, "glDebugMessageEnableAMD") == 0 ||
+               std::strcmp(name, "glDebugMessageInsertAMD") == 0 ||
+               std::strcmp(name, "glDebugMessageCallbackAMD") == 0;
+    }
+}
+
 SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char* name) {
+    if (g_sfpewCompatMode && isBlockedDebugProc(name)) {
+        return nullptr;
+    }
+
     GETPROC(glGetString, name)
     GETPROC(glGetStringi, name)
     GETPROC(glGetIntegerv, name)
@@ -86,7 +113,7 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glBegin, name)
     GETPROC(glEnd, name)
     // GETPROC(glVertex2d, name)
-    // GETPROC(glVertex2f, name)
+    GETPROC(glVertex2f, name)
     // GETPROC(glVertex2i, name)
     // GETPROC(glVertex2s, name)
     // GETPROC(glVertex3d, name)
@@ -98,15 +125,15 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     // GETPROC(glVertex4i, name)
     // GETPROC(glVertex4s, name)
     // GETPROC(glVertex2dv, name)
-    // GETPROC(glVertex2fv, name)
+    GETPROC(glVertex2fv, name)
     // GETPROC(glVertex2iv, name)
     // GETPROC(glVertex2sv, name)
     // GETPROC(glVertex3dv, name)
-    // GETPROC(glVertex3fv, name)
+    GETPROC(glVertex3fv, name)
     // GETPROC(glVertex3iv, name)
     // GETPROC(glVertex3sv, name)
     // GETPROC(glVertex4dv, name)
-    // GETPROC(glVertex4fv, name)
+    GETPROC(glVertex4fv, name)
     // GETPROC(glVertex4iv, name)
     // GETPROC(glVertex4sv, name)
     // GETPROC(glNormal3b, name)
@@ -116,9 +143,33 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     // GETPROC(glNormal3s, name)
     // GETPROC(glNormal3bv, name)
     // GETPROC(glNormal3dv, name)
-    // GETPROC(glNormal3fv, name)
+    GETPROC(glNormal3fv, name)
     // GETPROC(glNormal3iv, name)
     // GETPROC(glNormal3sv, name)
+    GETPROC(glTexCoord2f, name)
+    GETPROC(glTexCoord2fv, name)
+    GETPROC(glTexCoord4f, name)
+    GETPROC(glTexCoord4fv, name)
+    GETPROC(glMultiTexCoord2f, name)
+    GETPROC(glMultiTexCoord2fv, name)
+    GETPROC(glMultiTexCoord4f, name)
+    GETPROC(glMultiTexCoord4fv, name)
+    GETPROC(glColor3b, name)
+    GETPROC(glColor3d, name)
+    GETPROC(glColor3f, name)
+    GETPROC(glColor3i, name)
+    GETPROC(glColor3s, name)
+    GETPROC(glColor3ub, name)
+    GETPROC(glColor3ui, name)
+    GETPROC(glColor3us, name)
+    GETPROC(glColor3bv, name)
+    GETPROC(glColor3dv, name)
+    GETPROC(glColor3fv, name)
+    GETPROC(glColor3iv, name)
+    GETPROC(glColor3sv, name)
+    GETPROC(glColor3ubv, name)
+    GETPROC(glColor3uiv, name)
+    GETPROC(glColor3usv, name)
     GETPROC(glGenLists, name)
     GETPROC(glDeleteLists, name)
     GETPROC(glIsList, name)
@@ -129,6 +180,17 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glListBase, name)
     GETPROC(glEnable, name)
     GETPROC(glDisable, name)
+    GETPROC(glBlendFunc, name)
+    GETPROC(glBlendFuncSeparate, name)
+    GETPROC(glBlendEquation, name)
+    GETPROC(glBlendEquationSeparate, name)
+    GETPROC(glBlendColor, name)
+    GETPROC(glColorMask, name)
+    GETPROC(glCullFace, name)
+    GETPROC(glDepthFunc, name)
+    GETPROC(glDepthMask, name)
+    GETPROC(glFrontFace, name)
+    GETPROC(glActiveTexture, name)
     GETPROC(glClientActiveTexture, name)
     GETPROC(glAlphaFunc, name)
     GETPROC(glFogf, name)
@@ -144,7 +206,22 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glLightModeli, name)
     GETPROC(glLightModelfv, name)
     GETPROC(glLightModeliv, name)
+    GETPROC(glColor4b, name)
+    GETPROC(glColor4d, name)
     GETPROC(glColor4f, name)
+    GETPROC(glColor4i, name)
+    GETPROC(glColor4s, name)
+    GETPROC(glColor4ub, name)
+    GETPROC(glColor4ui, name)
+    GETPROC(glColor4us, name)
+    GETPROC(glColor4bv, name)
+    GETPROC(glColor4dv, name)
+    GETPROC(glColor4fv, name)
+    GETPROC(glColor4iv, name)
+    GETPROC(glColor4sv, name)
+    GETPROC(glColor4ubv, name)
+    GETPROC(glColor4uiv, name)
+    GETPROC(glColor4usv, name)
     GETPROC(glMatrixMode, name)
     GETPROC(glLoadIdentity, name)
     GETPROC(glOrtho, name)

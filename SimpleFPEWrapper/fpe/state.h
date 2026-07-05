@@ -19,6 +19,18 @@ extern "C"
 
     GLAPI GLAPIENTRY void glEnable(GLenum cap);
     GLAPI GLAPIENTRY void glDisable(GLenum cap);
+    GLAPI GLAPIENTRY void glBlendFunc(GLenum sfactor, GLenum dfactor);
+    GLAPI GLAPIENTRY void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha,
+                                              GLenum dfactorAlpha);
+    GLAPI GLAPIENTRY void glBlendEquation(GLenum mode);
+    GLAPI GLAPIENTRY void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha);
+    GLAPI GLAPIENTRY void glBlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+    GLAPI GLAPIENTRY void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+    GLAPI GLAPIENTRY void glCullFace(GLenum mode);
+    GLAPI GLAPIENTRY void glDepthFunc(GLenum func);
+    GLAPI GLAPIENTRY void glDepthMask(GLboolean flag);
+    GLAPI GLAPIENTRY void glFrontFace(GLenum mode);
+    GLAPI GLAPIENTRY void glActiveTexture(GLenum texture);
     GLAPI GLAPIENTRY void glClientActiveTexture(GLenum texture);
     GLAPI void GLAPIENTRY glAlphaFunc(GLenum func, GLclampf ref);
     GLAPI void GLAPIENTRY glFogf(GLenum pname, GLfloat param);

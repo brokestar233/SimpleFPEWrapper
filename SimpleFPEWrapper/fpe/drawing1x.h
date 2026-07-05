@@ -10,6 +10,21 @@
 
 #include "types.h"
 #include "fpe.hpp"
+#include <limits>
+#include <type_traits>
+
+template <typename Type>
+GLfloat mglNormalizeColorComponent(Type value) {
+    if constexpr (std::is_floating_point_v<Type>) {
+        return static_cast<GLfloat>(value);
+    } else if constexpr (std::is_unsigned_v<Type>) {
+        constexpr GLfloat invMax = 1.0f / static_cast<GLfloat>(std::numeric_limits<Type>::max());
+        return static_cast<GLfloat>(value) * invMax;
+    } else {
+        constexpr GLfloat invMax = 1.0f / static_cast<GLfloat>(std::numeric_limits<Type>::max());
+        return std::max(static_cast<GLfloat>(value) * invMax, -1.0f);
+    }
+}
 
 // a bit bad for perf, but keep this for now...
 template <typename Type, GLint N>
@@ -40,7 +55,7 @@ void mglColor(std::array<Type, N> color) {
     auto& cur = state.current_data.color;
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
-        glm::value_ptr(cur)[i] = (GLfloat)color[i];
+        glm::value_ptr(cur)[i] = mglNormalizeColorComponent(color[i]);
     }
     state.current_data.sizes.color_size = N;
 }

@@ -7,12 +7,38 @@
 // End of Source File Header
 
 #include "loader.h"
+#include <algorithm>
 #include <dlfcn.h>
 #include <cstring>
+#include <cstdio>
 #include <vector>
 
 namespace SFPEW::Utils::BackendLoader {
     static void* g_backendLib = nullptr;
+
+    static std::vector<std::string> ExpandCoLocatedLibraryNames(const std::vector<std::string>& names) {
+        std::vector<std::string> expanded;
+        expanded.reserve(names.size() * 2);
+
+#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
+        Dl_info selfInfo{};
+        std::string selfDir;
+        if (dladdr((void*)&ExpandCoLocatedLibraryNames, &selfInfo) && selfInfo.dli_fname) {
+            const char* selfPath = selfInfo.dli_fname;
+            if (const char* slash = std::strrchr(selfPath, '/')) {
+                selfDir.assign(selfPath, static_cast<size_t>(slash - selfPath));
+            }
+        }
+#endif
+
+        for (const auto& name : names) {
+            if (!name.empty() && name.find('/') == std::string::npos && !selfDir.empty()) {
+                expanded.push_back(selfDir + "/" + name);
+            }
+            expanded.push_back(name);
+        }
+        return expanded;
+    }
 
     static void* OpenLib(const std::vector<std::string>& names) {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
@@ -22,12 +48,26 @@ namespace SFPEW::Utils::BackendLoader {
         };
 
         void* lib = nullptr;
+        const auto expandedNames = ExpandCoLocatedLibraryNames(names);
 
         int flags = RTLD_LOCAL | RTLD_NOW;
+        for (const auto& name : expandedNames) {
+            if (name.find('/') == std::string::npos) {
+                continue;
+            }
+            if ((lib = dlopen(name.c_str(), flags))) {
+                std::fprintf(stderr, "SFPEW_DEBUG LOADER opened_backend_lib path=%s\n", name.c_str());
+                return lib;
+            }
+        }
         for (const auto& prefix : LibPathPrefixes) {
-            for (const auto& name : names) {
+            for (const auto& name : expandedNames) {
+                if (name.find('/') != std::string::npos && !prefix.empty()) {
+                    continue;
+                }
                 std::string path_name = prefix + name;
                 if ((lib = dlopen(path_name.c_str(), flags))) {
+                    std::fprintf(stderr, "SFPEW_DEBUG LOADER opened_backend_lib path=%s\n", path_name.c_str());
                     return lib;
                 }
             }
@@ -435,12 +475,36 @@ namespace SFPEW::Utils::BackendLoader {
             INIT_BACKENDGL_FUNC(glMultiDrawElementsIndirectEXT)
             INIT_BACKENDGL_FUNC(glMultiDrawElementsBaseVertexEXT)
         }
+#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
+        auto dumpResolvedSymbol = [](const char* label, void* ptr) {
+            if (!ptr) {
+                std::fprintf(stderr, "SFPEW_DEBUG LOADER symbol=%s ptr=<null>\n", label);
+                return;
+            }
+            Dl_info info{};
+            if (dladdr(ptr, &info) && info.dli_fname) {
+                std::fprintf(stderr, "SFPEW_DEBUG LOADER symbol=%s ptr=%p so=%s sym=%s\n",
+                             label,
+                             ptr,
+                             info.dli_fname,
+                             info.dli_sname ? info.dli_sname : "<unknown>");
+            } else {
+                std::fprintf(stderr, "SFPEW_DEBUG LOADER symbol=%s ptr=%p so=<unknown>\n", label, ptr);
+            }
+        };
+        dumpResolvedSymbol("eglGetProcAddress", reinterpret_cast<void*>(procAddress));
+        dumpResolvedSymbol("glGetError", reinterpret_cast<void*>(funcs.glGetError));
+        dumpResolvedSymbol("glEnable", reinterpret_cast<void*>(funcs.glEnable));
+        dumpResolvedSymbol("glBlendFunc", reinterpret_cast<void*>(funcs.glBlendFunc));
+        dumpResolvedSymbol("glBindVertexArray", reinterpret_cast<void*>(funcs.glBindVertexArray));
+#endif
         return true;
     }
 
     bool AcquireEGLFunctions(External::EGLFunctionsTable& funcs, std::string customLibPath) {
-        std::vector<std::string> EGLLibNames = {"libEGL.so"};
+        std::vector<std::string> EGLLibNames = {"libMobileGL.so", "libEGL.so"};
         if (!customLibPath.empty()) {
+            EGLLibNames.erase(std::remove(EGLLibNames.begin(), EGLLibNames.end(), customLibPath), EGLLibNames.end());
             EGLLibNames.insert(EGLLibNames.begin(), customLibPath);
         }
         void* eglLib = OpenLib(EGLLibNames);

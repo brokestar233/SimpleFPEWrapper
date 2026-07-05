@@ -55,7 +55,7 @@ struct vertex_pointer_array_t {
     // Split into starting pointer & offset into buffer per pointer
     vertex_pointer_array_t normalize();
 
-    void generate_compressed_index(GLint constant_sizes[VERTEX_POINTER_COUNT]);
+    void generate_compressed_index(const GLint* constant_sizes);
 
     // Get compressed index
     inline GLuint cidx(int i) const { return compressed_index[i]; }
@@ -65,6 +65,7 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     bool fog_enable = false;        // GL_FOG
     bool lighting_enable = false;   // GL_LIGHTING
     bool alpha_test_enable = false; // GL_ALPHA_TEST
+    bool texture_2d_enable[MAX_TEX] = {false};
     bool light_enable[MAX_LIGHTS] = {false};
 };
 
@@ -99,6 +100,40 @@ struct fixed_function_draw_size_t {
     };
 };
 
+inline GLint size_for_attribute_index(const fixed_function_draw_size_t& sizes, int attribute_index) {
+    switch (attribute_index) {
+    case 0:
+        return sizes.vertex_size;
+    case 1:
+        return sizes.normal_size;
+    case 2:
+        return sizes.color_size;
+    case 3:
+        return sizes.index_size;
+    case 4:
+        return sizes.edge_size;
+    case 5:
+        return sizes.fog_size;
+    case 6:
+        return sizes.secondary_color_size;
+    default: {
+        const int tex_index = attribute_index - 7;
+        if (tex_index >= 0 && tex_index < MAX_TEX) {
+            return sizes.texcoord_size[tex_index];
+        }
+        return 0;
+    }
+    }
+}
+
+inline std::array<GLint, VERTEX_POINTER_COUNT> build_attribute_size_table(const fixed_function_draw_size_t& sizes) {
+    std::array<GLint, VERTEX_POINTER_COUNT> table{};
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        table[static_cast<std::size_t>(i)] = size_for_attribute_index(sizes, i);
+    }
+    return table;
+}
+
 struct fixed_function_draw_data_t {
     glm::vec4 vertex = {0, 0, 0, 1};
     glm::vec3 normal = {0, 0, 1};
@@ -126,6 +161,7 @@ struct fixed_function_draw_state_t {
 };
 
 struct fixed_function_state_t {
+    GLenum active_texture = GL_TEXTURE0;             // glActiveTexture, specifies active texture unit
     GLenum client_active_texture = GL_TEXTURE0;      // glClientActiveTexture, specifies active texcood
     GLenum alpha_func = GL_ALWAYS;                   // glAlphaFunc
     GLenum fog_mode = GL_EXP;                        // glFogi(GL_FOG_MODE)

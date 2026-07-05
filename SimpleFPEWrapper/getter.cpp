@@ -10,6 +10,7 @@
 #include "init.h"
 #include <cstdio>
 #include <cctype>
+#include <vector>
 #include <glm/gtc/type_ptr.hpp>
 #include "fpe/fpe.hpp"
 
@@ -61,6 +62,58 @@ namespace {
             textureUnits = 16;
         }
         return textureUnits;
+    }
+
+    bool isBlockedCompatExtension(const char* extension) {
+        return extension != nullptr &&
+               (std::strcmp(extension, "GL_KHR_debug") == 0 ||
+                std::strcmp(extension, "GL_ARB_debug_output") == 0 ||
+                std::strcmp(extension, "GL_AMD_debug_output") == 0);
+    }
+
+    const std::vector<std::string>& getFilteredBackendExtensions() {
+        static std::vector<std::string> cachedExtensions;
+        static bool initialized = false;
+        if (initialized) {
+            return cachedExtensions;
+        }
+        initialized = true;
+
+        GLint extCount = 0;
+        g_glFuncs.glGetIntegerv(GL_NUM_EXTENSIONS, &extCount);
+        if (extCount > 0 && g_glFuncs.glGetStringi) {
+            cachedExtensions.reserve(static_cast<size_t>(extCount));
+            for (GLint i = 0; i < extCount; ++i) {
+                const auto* extension = reinterpret_cast<const char*>(g_glFuncs.glGetStringi(GL_EXTENSIONS, i));
+                if (!extension || extension[0] == '\0' || isBlockedCompatExtension(extension)) {
+                    continue;
+                }
+                cachedExtensions.emplace_back(extension);
+            }
+            return cachedExtensions;
+        }
+
+        const auto* legacyExtensions = reinterpret_cast<const char*>(g_glFuncs.glGetString(GL_EXTENSIONS));
+        if (!legacyExtensions || legacyExtensions[0] == '\0') {
+            return cachedExtensions;
+        }
+
+        std::string token;
+        for (const char* cursor = legacyExtensions;; ++cursor) {
+            const char ch = *cursor;
+            if (ch == ' ' || ch == '\0') {
+                if (!token.empty() && !isBlockedCompatExtension(token.c_str())) {
+                    cachedExtensions.push_back(token);
+                }
+                token.clear();
+                if (ch == '\0') {
+                    break;
+                }
+                continue;
+            }
+            token.push_back(ch);
+        }
+        return cachedExtensions;
     }
 
     GLint getCompatFixedTextureLimit(GLenum pname, GLint reportedValue) {
@@ -127,24 +180,9 @@ namespace {
             extensions += ext;
         }
 
-        GLint extCount = 0;
-        g_glFuncs.glGetIntegerv(GL_NUM_EXTENSIONS, &extCount);
-        if (extCount > 0 && g_glFuncs.glGetStringi) {
-            for (GLint i = 0; i < extCount; ++i) {
-                const auto* extension = reinterpret_cast<const char*>(g_glFuncs.glGetStringi(GL_EXTENSIONS, i));
-                if (!extension || extension[0] == '\0') {
-                    continue;
-                }
-                extensions.push_back(' ');
-                extensions += extension;
-            }
-            return extensions;
-        }
-
-        const auto* legacyExtensions = reinterpret_cast<const char*>(g_glFuncs.glGetString(GL_EXTENSIONS));
-        if (legacyExtensions && legacyExtensions[0] != '\0') {
+        for (const auto& extension : getFilteredBackendExtensions()) {
             extensions.push_back(' ');
-            extensions += legacyExtensions;
+            extensions += extension;
         }
         return extensions;
     }
@@ -220,12 +258,10 @@ const GLubyte* glGetStringi(GLenum name, GLuint index) {
         return reinterpret_cast<const GLubyte*>(kCompatExtensions[index]);
     }
 
-    if (!g_glFuncs.glGetStringi) {
-        return reinterpret_cast<const GLubyte*>("");
-    }
-
-    if (const auto* extension = g_glFuncs.glGetStringi(name, index - std::size(kCompatExtensions))) {
-        return extension;
+    const auto& filteredExtensions = getFilteredBackendExtensions();
+    const size_t backendIndex = index - std::size(kCompatExtensions);
+    if (backendIndex < filteredExtensions.size()) {
+        return reinterpret_cast<const GLubyte*>(filteredExtensions[backendIndex].c_str());
     }
     return reinterpret_cast<const GLubyte*>("");
 }
@@ -248,12 +284,7 @@ void glGetIntegerv(GLenum pname, GLint* params) {
         *params = 0;
         break;
     case GL_NUM_EXTENSIONS:
-        static GLint cachedNumExtensions = -1;
-        if (cachedNumExtensions == -1) {
-            g_glFuncs.glGetIntegerv(GL_NUM_EXTENSIONS, &cachedNumExtensions);
-            cachedNumExtensions += 8;
-        }
-        *params = cachedNumExtensions;
+        *params = static_cast<GLint>(std::size(kCompatExtensions) + getFilteredBackendExtensions().size());
         break;
     case GL_MAX_ATTRIB_STACK_DEPTH:
         *params = 16;

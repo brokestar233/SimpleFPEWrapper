@@ -10,12 +10,19 @@
 #include <string>
 #include <cstring>
 #include <stdexcept>
+#include <cstdarg>
 #include "backend/loader.h"
 
 #define SFPEW_APIENTRY __attribute__((visibility("default"))) extern "C"
 extern SFPEW::External::EGLFunctionsTable g_eglFuncs;
 extern SFPEW::External::BackendGLFunctionsTable g_glFuncs;
 extern bool g_sfpewCompatMode;
+extern bool g_sfpewDebugLogging;
+
+const char* glEnumToString(GLenum e);
+bool SFPEWIsDebugLoggingEnabled();
+void SFPEWDebugLog(const char* fmt, ...);
+void SFPEWDrainBackendErrors(const char* stage);
 
 SFPEW_APIENTRY const GLubyte* glGetString(GLenum name);
 SFPEW_APIENTRY const GLubyte* glGetStringi(GLenum name, GLuint index);

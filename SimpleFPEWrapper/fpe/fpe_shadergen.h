@@ -17,6 +17,7 @@ struct scratch_t {
 
     bool has_vertex_color = false;
     bool has_texcoord[MAX_TEX] = {false};
+    int position_size = 0;
 };
 
 class fpe_shader_generator {

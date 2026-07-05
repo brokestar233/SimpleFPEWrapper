@@ -33,9 +33,32 @@ vertex_pointer_array_t vertex_pointer_array_t::normalize() {
 
     if (stride == 0) that.stride = attributes[first_va_idx].stride;
 
-    // if not valid starting pointer
+    // If the pointers are real client-memory addresses, use the lowest enabled attribute pointer as the
+    // interleaved vertex base. Picking the first enabled attribute is wrong for common layouts like
+    // color/uv/vertex, where position data appears later in the struct than color or UV.
     if (!(that.stride != 0 && that.starting_pointer != 0 && that.starting_pointer > (void*)that.stride)) {
-        that.starting_pointer = attributes[first_va_idx].pointer;
+        if (that.stride > 0) {
+            uint64_t min_pointer = UINT64_MAX;
+            bool found_client_pointer = false;
+            for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+                bool enabled = ((enabled_pointers >> i) & 1);
+                if (!enabled) continue;
+
+                const uint64_t pointer_value = reinterpret_cast<uint64_t>(attributes[i].pointer);
+                if (pointer_value > static_cast<uint64_t>(that.stride) && pointer_value < min_pointer) {
+                    min_pointer = pointer_value;
+                    found_client_pointer = true;
+                }
+            }
+
+            if (found_client_pointer) {
+                that.starting_pointer = reinterpret_cast<const void*>(min_pointer);
+            } else {
+                that.starting_pointer = attributes[first_va_idx].pointer;
+            }
+        } else {
+            that.starting_pointer = attributes[first_va_idx].pointer;
+        }
     }
 
     // stride==0 && stride in pointer == 0
@@ -51,7 +74,8 @@ vertex_pointer_array_t vertex_pointer_array_t::normalize() {
         auto& vp = that.attributes[i];
 
         // check if pointer is a pointer rather than an offset
-        if (that.stride > 0 && (uint64_t)vp.pointer > (uint64_t)that.stride)
+        if (that.stride > 0 && (uint64_t)vp.pointer > (uint64_t)that.stride &&
+            (uint64_t)vp.pointer >= (uint64_t)that.starting_pointer)
             vp.pointer = (const void*)((const uint64_t)vp.pointer - (const uint64_t)that.starting_pointer);
 
         if (do_calc_stride)
@@ -69,7 +93,7 @@ vertex_pointer_array_t vertex_pointer_array_t::normalize() {
     return that;
 }
 
-void vertex_pointer_array_t::generate_compressed_index(GLint constant_sizes[VERTEX_POINTER_COUNT]) {
+void vertex_pointer_array_t::generate_compressed_index(const GLint* constant_sizes) {
     // Should set the array to -1, or ~0u
     memset(compressed_index, -1, sizeof(compressed_index));
 
