@@ -180,6 +180,10 @@ struct fixed_function_draw_state_t {
 
     size_t vertex_count = 0;
 
+    fixed_function_draw_size_t cached_vertex_stride_sizes{};
+    std::size_t cached_vertex_stride_bytes = 0;
+    bool cached_vertex_stride_valid = false;
+
     fixed_function_draw_size_t cached_layout_sizes{};
     vertex_pointer_array_t cached_layout_raw_va{};
     vertex_pointer_array_t cached_layout_normalized_va{};

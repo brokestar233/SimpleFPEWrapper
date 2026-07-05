@@ -12,13 +12,25 @@
 #define DEBUG 0
 
 namespace {
-    void append_bytes(std::vector<std::uint8_t>& buffer, const void* data, std::size_t byteCount) {
-        if (data == nullptr || byteCount == 0) {
-            return;
+    std::size_t ComputeVertexStrideBytes(const fixed_function_draw_size_t& sizes) {
+        std::size_t strideBytes = 0;
+
+        if (sizes.vertex_size > 0) {
+            strideBytes += sizeof(GLfloat) * static_cast<std::size_t>(sizes.vertex_size);
         }
-        const std::size_t offset = buffer.size();
-        buffer.resize(offset + byteCount);
-        std::memcpy(buffer.data() + offset, data, byteCount);
+        if (sizes.normal_size > 0) {
+            strideBytes += sizeof(GLfloat) * static_cast<std::size_t>(sizes.normal_size);
+        }
+        if (sizes.color_size > 0) {
+            strideBytes += sizeof(GLfloat) * static_cast<std::size_t>(sizes.color_size);
+        }
+        for (GLint i = 0; i < MAX_TEX; ++i) {
+            if (sizes.texcoord_size[i] > 0) {
+                strideBytes += sizeof(GLfloat) * static_cast<std::size_t>(sizes.texcoord_size[i]);
+            }
+        }
+
+        return strideBytes;
     }
 }
 
@@ -32,28 +44,49 @@ void fixed_function_draw_state_t::advance() {
     ++vertex_count;
 
     const auto& sizes = current_data.sizes;
+    if (!cached_vertex_stride_valid ||
+        std::memcmp(&cached_vertex_stride_sizes, &sizes, sizeof(sizes)) != 0) {
+        cached_vertex_stride_sizes = sizes;
+        cached_vertex_stride_bytes = ComputeVertexStrideBytes(sizes);
+        cached_vertex_stride_valid = true;
+    }
+
+    const std::size_t vertexStrideBytes = cached_vertex_stride_bytes;
+    if (vertexStrideBytes == 0) {
+        return;
+    }
+
+    const std::size_t offset = vb.size();
+    vb.resize(offset + vertexStrideBytes);
+    auto* cursor = vb.data() + offset;
 
     // vertex
     if (sizes.vertex_size > 0) {
-        append_bytes(vb, glm::value_ptr(current_data.vertex), sizeof(GLfloat) * static_cast<std::size_t>(sizes.vertex_size));
+        const std::size_t byteCount = sizeof(GLfloat) * static_cast<std::size_t>(sizes.vertex_size);
+        std::memcpy(cursor, glm::value_ptr(current_data.vertex), byteCount);
+        cursor += byteCount;
     }
 
     // normal
     if (sizes.normal_size > 0) {
-        append_bytes(vb, glm::value_ptr(current_data.normal), sizeof(GLfloat) * static_cast<std::size_t>(sizes.normal_size));
+        const std::size_t byteCount = sizeof(GLfloat) * static_cast<std::size_t>(sizes.normal_size);
+        std::memcpy(cursor, glm::value_ptr(current_data.normal), byteCount);
+        cursor += byteCount;
     }
 
     // color
     if (sizes.color_size > 0) {
-        append_bytes(vb, glm::value_ptr(current_data.color), sizeof(GLfloat) * static_cast<std::size_t>(sizes.color_size));
+        const std::size_t byteCount = sizeof(GLfloat) * static_cast<std::size_t>(sizes.color_size);
+        std::memcpy(cursor, glm::value_ptr(current_data.color), byteCount);
+        cursor += byteCount;
     }
 
     // texcoord
     for (GLint i = 0; i < MAX_TEX; ++i) {
         if (sizes.texcoord_size[i] > 0) {
-            append_bytes(vb,
-                         glm::value_ptr(current_data.texcoord[i]),
-                         sizeof(GLfloat) * static_cast<std::size_t>(sizes.texcoord_size[i]));
+            const std::size_t byteCount = sizeof(GLfloat) * static_cast<std::size_t>(sizes.texcoord_size[i]);
+            std::memcpy(cursor, glm::value_ptr(current_data.texcoord[i]), byteCount);
+            cursor += byteCount;
         }
     }
 
