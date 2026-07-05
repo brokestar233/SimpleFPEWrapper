@@ -22,6 +22,7 @@ endif()
 add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/init.cpp
         SimpleFPEWrapper/drawing.cpp
+        SimpleFPEWrapper/framebuffer.cpp
         SimpleFPEWrapper/getter.cpp
         SimpleFPEWrapper/lookup.cpp
 

@@ -8,11 +8,55 @@
 
 #include "init.h"
 #include "fpe/fpe.hpp"
+#include <fstream>
+#include <string>
 
 SFPEW::External::EGLFunctionsTable g_eglFuncs;
 SFPEW::External::BackendGLFunctionsTable g_glFuncs;
+bool g_sfpewCompatMode = true;
+
+namespace {
+    constexpr const char* kPluginConfigPath = "/storage/emulated/0/FCL/mobilegl-plugin.cfg";
+
+    std::string Trim(std::string value) {
+        const auto begin = value.find_first_not_of(" \t\r\n");
+        if (begin == std::string::npos) {
+            return {};
+        }
+        const auto end = value.find_last_not_of(" \t\r\n");
+        return value.substr(begin, end - begin + 1);
+    }
+
+    void LoadPluginConfig() {
+        std::ifstream configStream(kPluginConfigPath);
+        if (!configStream.is_open()) {
+            return;
+        }
+
+        std::string line;
+        while (std::getline(configStream, line)) {
+            const auto commentPos = line.find('#');
+            if (commentPos != std::string::npos) {
+                line.erase(commentPos);
+            }
+
+            const auto eqPos = line.find('=');
+            if (eqPos == std::string::npos) {
+                continue;
+            }
+
+            const auto key = Trim(line.substr(0, eqPos));
+            const auto value = Trim(line.substr(eqPos + 1));
+            if (key == "gl_mode") {
+                g_sfpewCompatMode = value != "direct";
+            }
+        }
+    }
+}
 
 void Init() {
+    LoadPluginConfig();
+
     std::string eglLibName;
     const char* envEglLib = std::getenv("SFPEW_EGL");
     if (envEglLib) {

@@ -12,6 +12,8 @@
 #include <vector>
 
 namespace SFPEW::Utils::BackendLoader {
+    static void* g_backendLib = nullptr;
+
     static void* OpenLib(const std::vector<std::string>& names) {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
         static const std::string LibPathPrefixes[] = {
@@ -48,9 +50,18 @@ namespace SFPEW::Utils::BackendLoader {
             return false;
         }
 
+        auto resolveBackendProc = [&](const char* name) -> void* {
+            if (g_backendLib) {
+                if (void* symbol = ProcAddress(g_backendLib, name)) {
+                    return symbol;
+                }
+            }
+            return reinterpret_cast<void*>(procAddress(name));
+        };
+
 #define INIT_BACKENDGL_FUNC(name)                                                                                      \
     do {                                                                                                               \
-        funcs.name = (External::BackendGL::name##_PTR)procAddress(#name);                                              \
+        funcs.name = (External::BackendGL::name##_PTR)resolveBackendProc(#name);                                       \
     } while (0);
 
         {
@@ -436,6 +447,7 @@ namespace SFPEW::Utils::BackendLoader {
         if (!eglLib) {
             return false;
         }
+        g_backendLib = eglLib;
 #define INIT_EGL_FUNC(name)                                                                                            \
     do {                                                                                                               \
         funcs.name = (External::EGL::name##_PTR)ProcAddress(eglLib, #name);                                            \
