@@ -14,6 +14,25 @@
 
 #define DEBUG 0
 
+namespace {
+
+std::vector<uint32_t> immediate_quad_to_triangle(std::size_t vertexCount) {
+    const std::size_t quadCount = vertexCount / 4;
+    std::vector<uint32_t> indices(quadCount * 6, 0);
+    for (std::size_t i = 0; i < quadCount; ++i) {
+        const uint32_t base = static_cast<uint32_t>(i * 4);
+        indices[i * 6 + 0] = base + 0;
+        indices[i * 6 + 1] = base + 1;
+        indices[i * 6 + 2] = base + 2;
+        indices[i * 6 + 3] = base + 2;
+        indices[i * 6 + 4] = base + 3;
+        indices[i * 6 + 5] = base + 0;
+    }
+    return indices;
+}
+
+}
+
 void glBegin(GLenum mode) {
     LIST_RECORD(glBegin, {}, mode)
 
@@ -39,7 +58,6 @@ void glEnd() {
 
     auto& s = g_glstate.fpe_state.fpe_draw;
     auto& raw_va = g_glstate.fpe_state.vertexpointer_array;
-    //    auto& vb = g_glstate.fpe_state.fpe_vb;
     auto& vb = g_glstate.fpe_state.fpe_draw.vb;
 
     if (s.primitive == GL_NONE) {
@@ -54,7 +72,6 @@ void glEnd() {
 
     // actual assembly work, and draw!
     {
-        // Vertex Pointer State Machine Update
         g_glstate.fpe_state.fpe_draw.compile_vertexattrib(raw_va);
 
         auto& va = g_glstate.fpe_state.normalized_vpa;
@@ -140,16 +157,27 @@ void glEnd() {
             SFPEWDrainBackendErrors("immediate.send_uniforms");
         }
 
-        // Draw
-        // LOG_D("glEnd: glDrawArrays(%s, %d, %d), vb = %d, vb size = %d", glEnumToString(s.primitive), 0,
-        // s.vertex_count,
-        //      g_glstate.fpe_state.fpe_vbo, vbbuf.size())
         SFPEWDebugLog("IMMEDIATE end mode=%s vertex_count=%zu vb_bytes=%zu program=%d",
                       glEnumToString(s.primitive),
                       s.vertex_count,
                       vbbuf.size(),
                       prog_id);
-        g_glFuncs.glDrawArrays(s.primitive, 0, s.vertex_count);
+
+        if (s.primitive == GL_QUADS) {
+            auto& ib = g_glstate.fpe_state.fpe_ib;
+            ib = immediate_quad_to_triangle(s.vertex_count);
+            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
+            SFPEWDrainBackendErrors("immediate.bind_element_array_buffer");
+            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                                   static_cast<GLsizeiptr>(ib.size() * sizeof(uint32_t)),
+                                   ib.data(),
+                                   GL_DYNAMIC_DRAW);
+            SFPEWDrainBackendErrors("immediate.index_buffer_data");
+            SFPEWDebugLog("IMMEDIATE converted quads to triangles new_count=%zu", ib.size());
+            g_glFuncs.glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(ib.size()), GL_UNSIGNED_INT, (void*)0);
+        } else {
+            g_glFuncs.glDrawArrays(s.primitive, 0, static_cast<GLsizei>(s.vertex_count));
+        }
         SFPEWDrainBackendErrors("immediate.draw_arrays");
     }
 
