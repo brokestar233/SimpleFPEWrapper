@@ -16,6 +16,7 @@ struct scratch_t {
     std::string vs_body;
 
     bool has_vertex_color = false;
+    bool has_constant_color = false;
     bool has_texcoord[MAX_TEX] = {false};
     int position_size = 0;
 };

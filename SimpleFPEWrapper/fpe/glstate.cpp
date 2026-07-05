@@ -18,7 +18,6 @@ void glstate_t::send_uniforms(int program) {
 
     const auto& mv = fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
     const auto& proj = fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)];
-
     // LOG_D("GL_MODELVIEW: ")
     print_matrix(mv);
     // LOG_D("GL_PROJECTION: ")
@@ -78,6 +77,11 @@ void glstate_t::send_uniforms(int program) {
         GLint alpharef_id = g_glFuncs.glGetUniformLocation(program, "alpharef");
 
         g_glFuncs.glUniform1f(alpharef_id, fpe_uniform.alpha_ref);
+    }
+
+    GLint currentColorId = g_glFuncs.glGetUniformLocation(program, "CurrentColor");
+    if (currentColorId >= 0) {
+        g_glFuncs.glUniform4fv(currentColorId, 1, glm::value_ptr(fpe_state.fpe_draw.current_data.color));
     }
 }
 

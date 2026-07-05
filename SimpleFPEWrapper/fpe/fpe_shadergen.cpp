@@ -1282,6 +1282,14 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
 
         if (enabled || constantSize > 0) {
             auto& vp = vpa.attributes[i];
+            const GLenum attributeUsage = enabled ? vp.usage : idx2vp(i);
+            const GLint componentCount = enabled ? vp.size : (constantSize > 0 ? constantSize : 4);
+            const int texid = attributeUsage - GL_TEXTURE_COORD_ARRAY;
+
+            if (!enabled && attributeUsage == GL_COLOR_ARRAY) {
+                scratch.has_constant_color = true;
+                continue;
+            }
 
             if (enabled) { // LOG_D("attrib #%d, cidx #%u: type = %s, size = %d, stride = %d, usage = %s, ptr = %p", i,
                            // vpa.cidx(i),
@@ -1291,19 +1299,19 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
                 //         glEnumToString(vp.type), glEnumToString(vp.usage), constantSize)
             }
 
-            std::string in_name = enabled ? vp2in_name(vp.usage, i) : vp2in_name(idx2vp(i), i);
+            std::string in_name = enabled ? vp2in_name(vp.usage, i) : vp2in_name(attributeUsage, i);
             std::string type = enabled ? type2str(vp.type, vp.size) : type2str(GL_FLOAT, 4);
 
             vs += std::format("layout (location = {}) in {} {};\n", vpa.cidx(i), type, in_name);
 
-            if (vp.usage == GL_VERTEX_ARRAY) { // GL_VERTEX_ARRAY will be written into gl_Position
+            if (attributeUsage == GL_VERTEX_ARRAY) { // GL_VERTEX_ARRAY will be written into gl_Position
                 scratch.position_size = enabled ? vp.size : state.fpe_draw.current_data.sizes.vertex_size;
                 continue;
             }
 
-            std::string out_name = enabled ? vp2out_name(vp.usage, i) : vp2out_name(idx2vp(i), i);
+            std::string out_name = enabled ? vp2out_name(vp.usage, i) : vp2out_name(attributeUsage, i);
             std::string linkageType = type;
-            if (vp.usage == GL_COLOR_ARRAY) {
+            if (attributeUsage == GL_COLOR_ARRAY) {
                 linkageType = "vec4";
             }
             std::string linkage;
@@ -1319,8 +1327,8 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
             scratch.last_stage_linkage += "in " + linkage;
 
             // TODO: if not this simple? Fog / Vertex light?
-            if (vp.usage == GL_COLOR_ARRAY) {
-                switch (vp.size) {
+            if (attributeUsage == GL_COLOR_ARRAY) {
+                switch (componentCount) {
                 case 1:
                     scratch.vs_body += std::format("{} = vec4({}, 0.0, 0.0, 1.0);\n", out_name, in_name);
                     break;
@@ -1341,9 +1349,8 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
                 scratch.vs_body += ";\n";
             }
 
-            if (vp.usage == GL_COLOR_ARRAY) scratch.has_vertex_color = true;
+            if (attributeUsage == GL_COLOR_ARRAY) scratch.has_vertex_color = true;
 
-            int texid = vp.usage - GL_TEXTURE_COORD_ARRAY;
             if (0 <= texid && texid < MAX_TEX) {
                 // LOG_D("has_texcoord[%d] = true", texid)
                 scratch.has_texcoord[texid] = true;
@@ -1413,6 +1420,10 @@ void add_fs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, st
     if (state.fpe_bools.alpha_test_enable) {
         fs += mg_alpharef_uniform;
     }
+
+    if (scratch.has_constant_color) {
+        fs += "uniform vec4 CurrentColor;\n";
+    }
 }
 
 void add_fs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::string& fs) {
@@ -1447,6 +1458,8 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
 
     if (scratch.has_vertex_color)
         fs += "    vec4 color = vertexColor;\n";
+    else if (scratch.has_constant_color)
+        fs += "    vec4 color = CurrentColor;\n";
     else
         fs += "    vec4 color = vec4(1., 1., 1., 1.);\n";
 
@@ -1464,22 +1477,12 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
             fs += std::format("\n"
                               "    // Texturing #{0}\n"
                               "    vec4 texcolor{0} = texture(Sampler{0}, texCoord{0});\n"
-                              "    // MobileGL can occasionally expose alpha-mask textures as RGB=0/A>0.\n"
-                              "    // Recover the expected luminance from alpha so text and GUI glyphs remain visible.\n"
-                              "    if (texcolor{0}.a > 0.0 && dot(texcolor{0}.rgb, texcolor{0}.rgb) == 0.0) {{\n"
-                              "        texcolor{0}.rgb = vec3(texcolor{0}.a);\n"
-                              "    }}\n"
                               "    color *= texcolor{0};\n",
                               i);
         } else {
             fs += std::format("\n"
                               "    // Texturing #{0}\n"
                               "    vec4 texcolor{0} = texture(Sampler{0}, texCoord{0});\n"
-                              "    // MobileGL can occasionally expose alpha-mask textures as RGB=0/A>0.\n"
-                              "    // Recover the expected luminance from alpha so text and GUI glyphs remain visible.\n"
-                              "    if (texcolor{0}.a > 0.0 && dot(texcolor{0}.rgb, texcolor{0}.rgb) == 0.0) {{\n"
-                              "        texcolor{0}.rgb = vec3(texcolor{0}.a);\n"
-                              "    }}\n"
                               "    color *= texcolor{0};\n",
                               i);
         }
