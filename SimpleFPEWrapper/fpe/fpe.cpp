@@ -213,6 +213,9 @@ int init_fpe() {
     g_glstate.uniform_state_version = 1;
     g_glstate.last_uniform_state_version = 0;
     g_glstate.last_uniform_program_id = -1;
+    g_glstate.shader_state_version = 1;
+    g_glstate.last_program_hash_state_version = 0;
+    g_glstate.last_program_hash = 0;
     g_glstate.backend_current_program = 0;
     g_glstate.backend_vertex_array_binding = 0;
     g_glstate.backend_array_buffer_binding = 0;
@@ -273,7 +276,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     g_glstate.backend_vertex_array_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vao);
     SFPEWDrainBackendErrors("fpe.bind_vertex_array");
 
-    auto key = g_glstate.program_hash();
+    auto key = g_glstate.program_hash(false);
     // LOG_D("%s: key=0x%x", __func__, key)
     auto& prog = g_glstate.get_or_generate_program(key);
     int prog_id = prog.get_program();

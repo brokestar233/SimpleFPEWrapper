@@ -50,6 +50,12 @@ DisplayListManager::RecordingState& recording_state() {
 
 void sfpew_list_glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
     auto& attr = g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
+    const bool changed = attr.size != size ||
+                         attr.usage != GL_VERTEX_ARRAY ||
+                         attr.type != type ||
+                         attr.normalized != GL_FALSE ||
+                         attr.stride != stride ||
+                         attr.pointer != pointer;
     attr.size = size;
     attr.usage = GL_VERTEX_ARRAY;
     attr.type = type;
@@ -58,10 +64,20 @@ void sfpew_list_glVertexPointer(GLint size, GLenum type, GLsizei stride, const v
     attr.pointer = pointer;
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
     g_glstate.fpe_state.vertexpointer_array.buffer_based = true;
+    if (changed) {
+        mark_shader_state_dirty();
+    }
     SFPEWDebugLog("VP vertex size=%d type=%s stride=%d ptr=%p", size, glEnumToString(type), stride, pointer);
 }
 
 void sfpew_list_glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
+    auto& attr = g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)];
+    const bool changed = attr.size != size ||
+                         attr.usage != GL_COLOR_ARRAY ||
+                         attr.type != type ||
+                         attr.normalized != GL_TRUE ||
+                         attr.stride != stride ||
+                         attr.pointer != pointer;
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)] = {
         .size = size,
         .usage = GL_COLOR_ARRAY,
@@ -71,12 +87,22 @@ void sfpew_list_glColorPointer(GLint size, GLenum type, GLsizei stride, const GL
         .pointer = pointer,
     };
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    if (changed) {
+        mark_shader_state_dirty();
+    }
     SFPEWDebugLog("VP color size=%d type=%s stride=%d ptr=%p normalized=1",
                   size, glEnumToString(type), stride, pointer);
 }
 
 void sfpew_list_glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     const GLenum usage = GL_TEXTURE_COORD_ARRAY + (g_glstate.fpe_state.client_active_texture - GL_TEXTURE0);
+    auto& attr = g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_TEXTURE_COORD_ARRAY)];
+    const bool changed = attr.size != size ||
+                         attr.usage != usage ||
+                         attr.type != type ||
+                         attr.normalized != GL_FALSE ||
+                         attr.stride != stride ||
+                         attr.pointer != pointer;
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_TEXTURE_COORD_ARRAY)] = {
         .size = size,
         .usage = usage,
@@ -86,6 +112,9 @@ void sfpew_list_glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const
         .pointer = pointer,
     };
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    if (changed) {
+        mark_shader_state_dirty();
+    }
     SFPEWDebugLog("VP texcoord size=%d type=%s stride=%d ptr=%p active=%s",
                   size, glEnumToString(type), stride, pointer,
                   glEnumToString(g_glstate.fpe_state.client_active_texture));
@@ -93,16 +122,24 @@ void sfpew_list_glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const
 
 void sfpew_list_glEnableClientState(GLenum cap) {
     auto mask = vp_mask(cap);
+    const auto previousMask = g_glstate.fpe_state.vertexpointer_array.enabled_pointers;
     g_glstate.fpe_state.vertexpointer_array.enabled_pointers |= mask;
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    if (g_glstate.fpe_state.vertexpointer_array.enabled_pointers != previousMask) {
+        mark_shader_state_dirty();
+    }
     SFPEWDebugLog("VP enable_client cap=%s enabled_mask=0x%x", glEnumToString(cap),
                   g_glstate.fpe_state.vertexpointer_array.enabled_pointers);
 }
 
 void sfpew_list_glDisableClientState(GLenum cap) {
     auto mask = vp_mask(cap);
+    const auto previousMask = g_glstate.fpe_state.vertexpointer_array.enabled_pointers;
     g_glstate.fpe_state.vertexpointer_array.enabled_pointers &= (~mask);
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    if (g_glstate.fpe_state.vertexpointer_array.enabled_pointers != previousMask) {
+        mark_shader_state_dirty();
+    }
     SFPEWDebugLog("VP disable_client cap=%s enabled_mask=0x%x", glEnumToString(cap),
                   g_glstate.fpe_state.vertexpointer_array.enabled_pointers);
 }
@@ -145,6 +182,13 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         if (DisplayListManager::shouldFinish()) return;
     }
 
+    auto& attr = g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)];
+    const bool changed = attr.size != 3 ||
+                         attr.usage != GL_NORMAL_ARRAY ||
+                         attr.type != type ||
+                         attr.normalized != GL_FALSE ||
+                         attr.stride != stride ||
+                         attr.pointer != pointer;
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)] = {
         .size = 3,
         .usage = GL_NORMAL_ARRAY,
@@ -155,6 +199,9 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         //            .varying = true
     };
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    if (changed) {
+        mark_shader_state_dirty();
+    }
     SFPEWDebugLog("VP normal type=%s stride=%d ptr=%p", glEnumToString(type), stride, pointer);
 }
 
@@ -217,6 +264,13 @@ void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         if (DisplayListManager::shouldFinish()) return;
     }
 
+    auto& attr = g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)];
+    const bool changed = attr.size != 1 ||
+                         attr.usage != GL_INDEX_ARRAY ||
+                         attr.type != type ||
+                         attr.normalized != GL_FALSE ||
+                         attr.stride != stride ||
+                         attr.pointer != pointer;
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)] = {
         .size = 1,
         .usage = GL_INDEX_ARRAY,
@@ -227,6 +281,9 @@ void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         //            .varying = true
     };
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    if (changed) {
+        mark_shader_state_dirty();
+    }
     SFPEWDebugLog("VP index type=%s stride=%d ptr=%p", glEnumToString(type), stride, pointer);
 }
 

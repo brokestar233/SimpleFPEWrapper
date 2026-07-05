@@ -320,6 +320,9 @@ struct glstate_t {
     uint64_t uniform_state_version = 1;
     uint64_t last_uniform_state_version = 0;
     GLint last_uniform_program_id = -1;
+    uint64_t shader_state_version = 1;
+    uint64_t last_program_hash_state_version = 0;
+    uint64_t last_program_hash = 0;
     GLint backend_current_program = 0;
     GLint backend_vertex_array_binding = 0;
     GLint backend_array_buffer_binding = 0;

@@ -31,11 +31,15 @@ template <typename Type, GLint N>
 void mglNormal(std::array<Type, N> normal) {
     auto& state = g_glstate.fpe_state.fpe_draw;
     auto& cur = state.current_data.normal;
+    const GLint previousSize = state.current_data.sizes.normal_size;
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)normal[i];
     }
     state.current_data.sizes.normal_size = N;
+    if (previousSize != N) {
+        mark_shader_state_dirty();
+    }
     if (state.primitive == GL_NONE) {
         mark_uniform_state_dirty();
     }
@@ -45,11 +49,15 @@ template <typename Type, GLint N>
 void mglTexCoord(std::array<Type, N> uv, GLint texid) {
     auto& state = g_glstate.fpe_state.fpe_draw;
     auto& cur = state.current_data.texcoord[texid];
+    const GLint previousSize = state.current_data.sizes.texcoord_size[texid];
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)uv[i];
     }
     state.current_data.sizes.texcoord_size[texid] = N;
+    if (previousSize != N) {
+        mark_shader_state_dirty();
+    }
     if (state.primitive == GL_NONE) {
         mark_uniform_state_dirty();
     }
@@ -59,11 +67,15 @@ template <typename Type, GLint N>
 void mglColor(std::array<Type, N> color) {
     auto& state = g_glstate.fpe_state.fpe_draw;
     auto& cur = state.current_data.color;
+    const GLint previousSize = state.current_data.sizes.color_size;
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = mglNormalizeColorComponent(color[i]);
     }
     state.current_data.sizes.color_size = N;
+    if (previousSize != N) {
+        mark_shader_state_dirty();
+    }
     if (state.primitive == GL_NONE) {
         mark_uniform_state_dirty();
     }
@@ -75,11 +87,15 @@ void mglVertex(std::array<Type, N> vertex) {
 
     auto& state = g_glstate.fpe_state.fpe_draw;
     auto& cur = state.current_data.vertex;
+    const GLint previousSize = state.current_data.sizes.vertex_size;
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)vertex[i];
     }
     state.current_data.sizes.vertex_size = N;
+    if (previousSize != N) {
+        mark_shader_state_dirty();
+    }
 
     // let's collect one vertex here!
     state.advance();

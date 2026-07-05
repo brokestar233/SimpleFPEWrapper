@@ -59,7 +59,7 @@ void glEnd() {
         const auto attributeSizes = build_attribute_size_table(g_glstate.fpe_state.fpe_draw.current_data.sizes);
         va.generate_compressed_index(attributeSizes.data());
 
-        auto key = g_glstate.program_hash();
+        auto key = g_glstate.program_hash(false);
 
         // Program
         auto& prog = g_glstate.get_or_generate_program(key);

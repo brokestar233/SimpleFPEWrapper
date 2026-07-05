@@ -25,6 +25,10 @@ inline void mark_uniform_state_dirty() {
     ++g_glstate.uniform_state_version;
 }
 
+inline void mark_shader_state_dirty() {
+    ++g_glstate.shader_state_version;
+}
+
 extern bool fpe_inited;
 
 int init_fpe();

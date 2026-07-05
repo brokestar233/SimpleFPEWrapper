@@ -21,6 +21,9 @@
 namespace {
 
 void sfpew_list_glClientActiveTexture(GLenum texture) {
+    if (g_glstate.fpe_state.client_active_texture != texture) {
+        mark_shader_state_dirty();
+    }
     g_glstate.fpe_state.client_active_texture = texture;
     SFPEWDebugLog("STATE client_active_texture=%s", glEnumToString(texture));
 }
@@ -193,7 +196,12 @@ void glEnable(GLenum cap) {
     LIST_RECORD(glEnable, {}, cap)
     SFPEWDebugLog("STATE enable cap=%s", glEnumToString(cap));
 
+    const auto previousBools = g_glstate.fpe_state.fpe_bools;
     if (hijack_fpe_states(cap, true, &g_glstate.fpe_state.fpe_bools)) {
+        if (std::memcmp(&previousBools, &g_glstate.fpe_state.fpe_bools, sizeof(previousBools)) != 0) {
+            mark_shader_state_dirty();
+            mark_uniform_state_dirty();
+        }
         if (cap == GL_ALPHA_TEST && g_glFuncs.glEnable) {
             g_glFuncs.glEnable(cap);
             SFPEWDrainBackendErrors("state.enable");
@@ -212,7 +220,12 @@ void glDisable(GLenum cap) {
     LIST_RECORD(glDisable, {}, cap)
     SFPEWDebugLog("STATE disable cap=%s", glEnumToString(cap));
 
+    const auto previousBools = g_glstate.fpe_state.fpe_bools;
     if (hijack_fpe_states(cap, false, &g_glstate.fpe_state.fpe_bools)) {
+        if (std::memcmp(&previousBools, &g_glstate.fpe_state.fpe_bools, sizeof(previousBools)) != 0) {
+            mark_shader_state_dirty();
+            mark_uniform_state_dirty();
+        }
         if (cap == GL_ALPHA_TEST && g_glFuncs.glDisable) {
             g_glFuncs.glDisable(cap);
             SFPEWDrainBackendErrors("state.disable");
@@ -472,6 +485,7 @@ void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
         break;
     default:
         apply_texenv_enum(pname, static_cast<GLenum>(param));
+        mark_shader_state_dirty();
         break;
     }
     mark_uniform_state_dirty();
@@ -495,6 +509,7 @@ void glTexEnvi(GLenum target, GLenum pname, GLint param) {
         break;
     default:
         apply_texenv_enum(pname, static_cast<GLenum>(param));
+        mark_shader_state_dirty();
         break;
     }
     mark_uniform_state_dirty();
@@ -521,6 +536,7 @@ void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
         break;
     default:
         apply_texenv_enum(pname, static_cast<GLenum>(params[0]));
+        mark_shader_state_dirty();
         break;
     }
     mark_uniform_state_dirty();
@@ -551,6 +567,7 @@ void glTexEnviv(GLenum target, GLenum pname, const GLint* params) {
         break;
     default:
         apply_texenv_enum(pname, static_cast<GLenum>(params[0]));
+        mark_shader_state_dirty();
         break;
     }
     mark_uniform_state_dirty();
@@ -568,6 +585,7 @@ void glAlphaFunc(GLenum func, GLclampf ref) {
 
     g_glstate.fpe_state.alpha_func = func;
     g_glstate.fpe_uniform.alpha_ref = ref;
+    mark_shader_state_dirty();
     mark_uniform_state_dirty();
     if (g_glFuncs.glAlphaFunc) {
         g_glFuncs.glAlphaFunc(func, ref);
@@ -617,14 +635,17 @@ void glFogi(GLenum pname, GLint param) {
     switch (pname) {
     case GL_FOG_MODE:
         g_glstate.fpe_state.fog_mode = param;
+        mark_shader_state_dirty();
         mark_uniform_state_dirty();
         break;
     case GL_FOG_INDEX:
         g_glstate.fpe_state.fog_index = param;
+        mark_shader_state_dirty();
         mark_uniform_state_dirty();
         break;
     case GL_FOG_COORD_SRC:
         g_glstate.fpe_state.fog_coord_src = param;
+        mark_shader_state_dirty();
         mark_uniform_state_dirty();
         break;
 
@@ -711,6 +732,7 @@ void glShadeModel(GLenum mode) {
     LIST_RECORD(glShadeModel, {}, mode)
 
     g_glstate.fpe_state.shade_model = mode;
+    mark_shader_state_dirty();
 }
 
 void glLightf(GLenum light, GLenum pname, GLfloat param) {
@@ -870,12 +892,15 @@ void glLightModeli(GLenum pname, GLint param) {
     switch (pname) {
     case GL_LIGHT_MODEL_COLOR_CONTROL:
         g_glstate.fpe_state.light_model_color_ctrl = param;
+        mark_shader_state_dirty();
         break;
     case GL_LIGHT_MODEL_LOCAL_VIEWER:
         g_glstate.fpe_state.light_model_local_viewer = param;
+        mark_shader_state_dirty();
         break;
     case GL_LIGHT_MODEL_TWO_SIDE:
         g_glstate.fpe_state.light_model_two_side = param;
+        mark_shader_state_dirty();
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)

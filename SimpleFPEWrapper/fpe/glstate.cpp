@@ -206,6 +206,11 @@ void glstate_t::send_uniforms(const program_t& program) {
 }
 
 uint64_t glstate_t::program_hash(bool reset) {
+    if (!reset &&
+        last_program_hash_state_version == shader_state_version) {
+        return last_program_hash;
+    }
+
     if (reset) {
         p_hash = XXHash64(s_hash_seed);
     }
@@ -228,6 +233,8 @@ uint64_t glstate_t::program_hash(bool reset) {
     hash.add(&fpe_state.fpe_bools, sizeof(fpe_state.fpe_bools));
 
     uint64_t key = hash.hash();
+    last_program_hash_state_version = shader_state_version;
+    last_program_hash = key;
 
     return key;
 }
