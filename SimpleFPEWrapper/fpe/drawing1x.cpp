@@ -24,7 +24,8 @@ void glBegin(GLenum mode) {
             fpe_inited = true;
     }
 
-    auto& s = g_glstate.fpe_state.fpe_draw;
+    auto& gls = g_glstate;
+    auto& s = gls.fpe_state.fpe_draw;
 
     if (s.primitive != GL_NONE) {
         return;
@@ -37,30 +38,32 @@ void glBegin(GLenum mode) {
 void glEnd() {
     LIST_RECORD(glEnd, {})
 
-    auto& s = g_glstate.fpe_state.fpe_draw;
-    auto& raw_va = g_glstate.fpe_state.vertexpointer_array;
-    auto& vb = g_glstate.fpe_state.fpe_draw.vb;
+    auto& gls = g_glstate;
+    auto& fpeState = gls.fpe_state;
+    auto& s = fpeState.fpe_draw;
+    auto& raw_va = fpeState.vertexpointer_array;
+    auto& vb = fpeState.fpe_draw.vb;
 
     if (s.primitive == GL_NONE) {
         return;
     }
 
     GET_PREV_PROGRAM
-    const GLint prev_vao = g_glstate.backend_vertex_array_binding;
-    const GLint prev_vbo = g_glstate.backend_array_buffer_binding;
+    const GLint prev_vao = gls.backend_vertex_array_binding;
+    const GLint prev_vbo = gls.backend_array_buffer_binding;
 
     // actual assembly work, and draw!
     {
-        auto& va = g_glstate.fpe_state.normalized_vpa;
+        auto& va = fpeState.normalized_vpa;
         if (s.cached_layout_valid &&
             std::memcmp(&s.cached_layout_sizes, &s.current_data.sizes, sizeof(s.cached_layout_sizes)) == 0) {
             raw_va = s.cached_layout_raw_va;
             va = s.cached_layout_normalized_va;
         } else {
-            g_glstate.fpe_state.fpe_draw.compile_vertexattrib(raw_va);
+            s.compile_vertexattrib(raw_va);
             va = raw_va.normalize();
             // Need to generate_compressed_index first (shadergen will use that)
-            const auto attributeSizes = build_attribute_size_table(g_glstate.fpe_state.fpe_draw.current_data.sizes);
+            const auto attributeSizes = build_attribute_size_table(s.current_data.sizes);
             va.generate_compressed_index(attributeSizes.data());
             s.cached_layout_sizes = s.current_data.sizes;
             s.cached_layout_raw_va = raw_va;
@@ -68,24 +71,24 @@ void glEnd() {
             s.cached_layout_valid = true;
         }
 
-        auto key = g_glstate.program_hash(false);
+        auto key = gls.program_hash(false);
 
         // Program
-        auto& prog = g_glstate.get_or_generate_program(key);
+        auto& prog = gls.get_or_generate_program(key);
 
         int prog_id = prog.get_program();
         if (prog_id < 0) {}
         g_glFuncs.glUseProgram(prog_id);
-        g_glstate.backend_current_program = prog_id;
+        gls.backend_current_program = prog_id;
         SFPEWDrainBackendErrors("immediate.use_program");
 
         // VAO, VB
-        g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
-        g_glstate.backend_vertex_array_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vao);
+        g_glFuncs.glBindVertexArray(fpeState.fpe_vao);
+        gls.backend_vertex_array_binding = static_cast<GLint>(fpeState.fpe_vao);
         SFPEWDrainBackendErrors("immediate.bind_vertex_array");
 
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
-        g_glstate.backend_array_buffer_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vbo);
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, fpeState.fpe_vbo);
+        gls.backend_array_buffer_binding = static_cast<GLint>(fpeState.fpe_vbo);
         SFPEWDrainBackendErrors("immediate.bind_array_buffer");
 
         const auto& vbbuf = vb;
@@ -142,12 +145,12 @@ void glEnd() {
         SFPEWDrainBackendErrors("immediate.buffer_data");
 
         // Vertex Pointer to ES
-        g_glstate.send_vertex_attributes(va);
+        gls.send_vertex_attributes(va);
         SFPEWDrainBackendErrors("immediate.send_vertex_attributes");
 
         // Uniform
         {
-            g_glstate.send_uniforms(prog);
+            gls.send_uniforms(prog);
             SFPEWDrainBackendErrors("immediate.send_uniforms");
         }
 
@@ -158,9 +161,9 @@ void glEnd() {
                       prog_id);
 
         if (s.primitive == GL_QUADS) {
-            auto& ib = g_glstate.fpe_state.fpe_ib;
+            auto& ib = fpeState.fpe_ib;
             fill_quad_to_triangle_indices(ib, static_cast<int>(s.vertex_count));
-            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
+            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, fpeState.fpe_ibo);
             SFPEWDrainBackendErrors("immediate.bind_element_array_buffer");
             g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
                                    static_cast<GLsizeiptr>(ib.size() * sizeof(uint32_t)),
@@ -177,11 +180,11 @@ void glEnd() {
 
     SFPEWDrainBackendErrors("immediate.draw");
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, prev_vbo);
-    g_glstate.backend_array_buffer_binding = prev_vbo;
+    gls.backend_array_buffer_binding = prev_vbo;
     g_glFuncs.glBindVertexArray(prev_vao);
-    g_glstate.backend_vertex_array_binding = prev_vao;
+    gls.backend_vertex_array_binding = prev_vao;
     SET_PREV_PROGRAM
-    g_glstate.backend_current_program = m_prev_program;
+    gls.backend_current_program = m_prev_program;
 
     // resetting draw state
     s.reset();

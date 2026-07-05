@@ -252,10 +252,12 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     }
 
     // Need to generate_compressed_index first (shadergen will use that)
-    auto& raw_vpa = g_glstate.fpe_state.vertexpointer_array;
-    auto& vpa = g_glstate.fpe_state.normalized_vpa;
+    auto& gls = g_glstate;
+    auto& fpeState = gls.fpe_state;
+    auto& raw_vpa = fpeState.vertexpointer_array;
+    auto& vpa = fpeState.normalized_vpa;
     std::vector<std::uint8_t> packedClientData;
-    const auto attributeSizes = build_attribute_size_table(g_glstate.fpe_state.fpe_draw.current_data.sizes);
+    const auto attributeSizes = build_attribute_size_table(fpeState.fpe_draw.current_data.sizes);
     const bool usesClientMemory = AnyEnabledAttributeUsesClientMemory(raw_vpa);
     if (usesClientMemory) {
         if (!BuildPackedClientArrayLayout(raw_vpa, *first, *count, attributeSizes.data(),
@@ -272,17 +274,17 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     raw_vpa.generate_compressed_index(attributeSizes.data());
     //    g_glFuncs.glGenVertexArrays(1, &vpa.fpe_vao);
     // LOG_D("fpe_vao: %d", g_glstate.fpe_state.fpe_vao)
-    g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
-    g_glstate.backend_vertex_array_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vao);
+    g_glFuncs.glBindVertexArray(fpeState.fpe_vao);
+    gls.backend_vertex_array_binding = static_cast<GLint>(fpeState.fpe_vao);
     SFPEWDrainBackendErrors("fpe.bind_vertex_array");
 
-    auto key = g_glstate.program_hash(false);
+    auto key = gls.program_hash(false);
     // LOG_D("%s: key=0x%x", __func__, key)
-    auto& prog = g_glstate.get_or_generate_program(key);
+    auto& prog = gls.get_or_generate_program(key);
     int prog_id = prog.get_program();
     // if (prog_id < 0) LOG_D("Error: FPE shader link failed!")
     g_glFuncs.glUseProgram(prog_id);
-    g_glstate.backend_current_program = prog_id;
+    gls.backend_current_program = prog_id;
     SFPEWDrainBackendErrors("fpe.use_program");
 
     SFPEWDebugLog("FPE commit mode=%s first=%d count=%d key=0x%llx program=%d vao=%u stride=%d start=%p enabled=0x%x client_mem=%d",
@@ -291,7 +293,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
                   *count,
                   static_cast<unsigned long long>(key),
                   prog_id,
-                  g_glstate.fpe_state.fpe_vao,
+                  fpeState.fpe_vao,
                   vpa.stride,
                   vpa.starting_pointer,
                   vpa.enabled_pointers,
@@ -299,7 +301,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
 
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         const bool enabled = ((vpa.enabled_pointers >> i) & 1) != 0;
-        const GLint constantSize = size_for_attribute_index(g_glstate.fpe_state.fpe_draw.current_data.sizes, i);
+        const GLint constantSize = size_for_attribute_index(fpeState.fpe_draw.current_data.sizes, i);
         if (!enabled && constantSize <= 0) {
             continue;
         }
@@ -319,15 +321,15 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     }
 
     if (usesClientMemory) {
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
-        g_glstate.backend_array_buffer_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vbo);
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, fpeState.fpe_vbo);
+        gls.backend_array_buffer_binding = static_cast<GLint>(fpeState.fpe_vbo);
         SFPEWDrainBackendErrors("fpe.bind_array_buffer");
     }
 
     // LOG_D("starting_ptr = %p", vpa.starting_pointer)
     // LOG_D("stride = %d", vpa.stride)
 
-    g_glstate.send_vertex_attributes(vpa);
+    gls.send_vertex_attributes(vpa);
     vpa.dirty = false;
     SFPEWDrainBackendErrors("fpe.send_vertex_attributes");
 
@@ -348,27 +350,27 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     }
 
     if (*mode == GL_QUADS) {
-        fill_quad_to_triangle_indices(g_glstate.fpe_state.fpe_ib, *count);
+        fill_quad_to_triangle_indices(fpeState.fpe_ib, *count);
 
         // LOG_D("glBufferData: size = %d, data = 0x%x -> GL_ELEMENT_ARRAY_BUFFER (%d)",
         //      g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t), g_glstate.fpe_state.fpe_ib.data(),
         //      g_glstate.fpe_state.fpe_ibo)
 
-        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
+        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, fpeState.fpe_ibo);
 
         g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                               static_cast<GLsizeiptr>(g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t)),
-                               g_glstate.fpe_state.fpe_ib.data(),
+                               static_cast<GLsizeiptr>(fpeState.fpe_ib.size() * sizeof(uint32_t)),
+                               fpeState.fpe_ib.data(),
                                GL_DYNAMIC_DRAW);
 
-        *count = g_glstate.fpe_state.fpe_ib.size();
+        *count = fpeState.fpe_ib.size();
 
         *mode = GL_TRIANGLES;
         ret = 1;
         SFPEWDebugLog("FPE converted quads to triangles new_count=%d", *count);
     }
 
-    g_glstate.send_uniforms(prog);
+    gls.send_uniforms(prog);
     SFPEWDrainBackendErrors("fpe.send_uniforms");
     vpa.reset();
     //    vpa.starting_pointer = 0;
