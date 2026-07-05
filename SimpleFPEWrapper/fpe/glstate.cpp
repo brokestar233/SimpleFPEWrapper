@@ -350,6 +350,16 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va) const {
                     drainAttrStage("vertex_attrib3fv", va.cidx(i), vp.usage);
                 }
                 break;
+            case GL_TEXTURE_COORD_ARRAY: {
+                const int texIndex = i - 7;
+                if (texIndex >= 0 && texIndex < MAX_TEX &&
+                    fpe_state.fpe_draw.current_data.sizes.texcoord_size[texIndex] > 0) {
+                    const auto& v = fpe_state.fpe_draw.current_data.texcoord[texIndex];
+                    g_glFuncs.glVertexAttrib4fv(va.cidx(i), glm::value_ptr(v));
+                    drainAttrStage("vertex_attrib4fv", va.cidx(i), vp.usage);
+                }
+                break;
+            }
             default:
                 // LOG_D("attrib #%d: (disabled)", i)
                 break;

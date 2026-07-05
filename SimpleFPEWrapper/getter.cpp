@@ -8,6 +8,7 @@
 
 #include "GL/gl.h"
 #include "init.h"
+#include <cstdint>
 #include <cstdio>
 #include <cctype>
 #include <vector>
@@ -186,6 +187,168 @@ namespace {
         }
         return extensions;
     }
+
+    int getActiveTextureIndex() {
+        const GLint textureIndex = static_cast<GLint>(g_glstate.fpe_state.active_texture - GL_TEXTURE0);
+        if (textureIndex >= 0 && textureIndex < MAX_TEX) {
+            return textureIndex;
+        }
+        return 0;
+    }
+
+    bool tryGetHijackedEnabled(GLenum cap, GLboolean* enabled) {
+        if (!enabled) {
+            return false;
+        }
+
+        switch (cap) {
+        case GL_FOG:
+            *enabled = g_glstate.fpe_state.fpe_bools.fog_enable ? GL_TRUE : GL_FALSE;
+            return true;
+        case GL_LIGHTING:
+            *enabled = g_glstate.fpe_state.fpe_bools.lighting_enable ? GL_TRUE : GL_FALSE;
+            return true;
+        case GL_ALPHA_TEST:
+            *enabled = g_glstate.fpe_state.fpe_bools.alpha_test_enable ? GL_TRUE : GL_FALSE;
+            return true;
+        case GL_COLOR_MATERIAL:
+            *enabled = g_glstate.fpe_state.fpe_bools.color_material_enable ? GL_TRUE : GL_FALSE;
+            return true;
+        case GL_RESCALE_NORMAL:
+            *enabled = g_glstate.fpe_state.fpe_bools.rescale_normal_enable ? GL_TRUE : GL_FALSE;
+            return true;
+        case GL_TEXTURE_2D:
+            *enabled = g_glstate.fpe_state.fpe_bools.texture_2d_enable[getActiveTextureIndex()] ? GL_TRUE : GL_FALSE;
+            return true;
+        case GL_LIGHT0:
+        case GL_LIGHT1:
+        case GL_LIGHT2:
+        case GL_LIGHT3:
+        case GL_LIGHT4:
+        case GL_LIGHT5:
+        case GL_LIGHT6:
+        case GL_LIGHT7: {
+            const GLint lightIndex = static_cast<GLint>(cap - GL_LIGHT0);
+            if (lightIndex >= 0 && lightIndex < MAX_LIGHTS) {
+                *enabled = g_glstate.fpe_state.fpe_bools.light_enable[lightIndex] ? GL_TRUE : GL_FALSE;
+                return true;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        return false;
+    }
+
+    bool tryGetTexEnvFloat(GLenum pname, GLfloat* params) {
+        if (!params) {
+            return false;
+        }
+
+        const int textureIndex = getActiveTextureIndex();
+        const auto& envState = g_glstate.fpe_state.texture_env[textureIndex];
+        const auto& envUniform = g_glstate.fpe_uniform.texture_env[textureIndex];
+
+        switch (pname) {
+        case GL_TEXTURE_ENV_MODE:
+            params[0] = static_cast<GLfloat>(envState.mode);
+            return true;
+        case GL_TEXTURE_ENV_COLOR:
+            std::memcpy(params, glm::value_ptr(envUniform.color), sizeof(GLfloat) * 4);
+            return true;
+        case GL_RGB_SCALE:
+            params[0] = envUniform.rgb_scale;
+            return true;
+        case GL_ALPHA_SCALE:
+            params[0] = envUniform.alpha_scale;
+            return true;
+        case GL_COMBINE_RGB:
+            params[0] = static_cast<GLfloat>(envState.combine_rgb);
+            return true;
+        case GL_COMBINE_ALPHA:
+            params[0] = static_cast<GLfloat>(envState.combine_alpha);
+            return true;
+        case GL_SOURCE0_RGB:
+        case GL_SOURCE1_RGB:
+        case GL_SOURCE2_RGB:
+            params[0] = static_cast<GLfloat>(envState.source_rgb[pname - GL_SOURCE0_RGB]);
+            return true;
+        case GL_SOURCE0_ALPHA:
+        case GL_SOURCE1_ALPHA:
+        case GL_SOURCE2_ALPHA:
+            params[0] = static_cast<GLfloat>(envState.source_alpha[pname - GL_SOURCE0_ALPHA]);
+            return true;
+        case GL_OPERAND0_RGB:
+        case GL_OPERAND1_RGB:
+        case GL_OPERAND2_RGB:
+            params[0] = static_cast<GLfloat>(envState.operand_rgb[pname - GL_OPERAND0_RGB]);
+            return true;
+        case GL_OPERAND0_ALPHA:
+        case GL_OPERAND1_ALPHA:
+        case GL_OPERAND2_ALPHA:
+            params[0] = static_cast<GLfloat>(envState.operand_alpha[pname - GL_OPERAND0_ALPHA]);
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool tryGetTexEnvInt(GLenum pname, GLint* params) {
+        if (!params) {
+            return false;
+        }
+
+        const int textureIndex = getActiveTextureIndex();
+        const auto& envState = g_glstate.fpe_state.texture_env[textureIndex];
+        const auto& envUniform = g_glstate.fpe_uniform.texture_env[textureIndex];
+
+        switch (pname) {
+        case GL_TEXTURE_ENV_MODE:
+            params[0] = static_cast<GLint>(envState.mode);
+            return true;
+        case GL_TEXTURE_ENV_COLOR:
+            params[0] = static_cast<GLint>(envUniform.color[0] * static_cast<GLfloat>(INT32_MAX));
+            params[1] = static_cast<GLint>(envUniform.color[1] * static_cast<GLfloat>(INT32_MAX));
+            params[2] = static_cast<GLint>(envUniform.color[2] * static_cast<GLfloat>(INT32_MAX));
+            params[3] = static_cast<GLint>(envUniform.color[3] * static_cast<GLfloat>(INT32_MAX));
+            return true;
+        case GL_RGB_SCALE:
+            params[0] = static_cast<GLint>(envUniform.rgb_scale);
+            return true;
+        case GL_ALPHA_SCALE:
+            params[0] = static_cast<GLint>(envUniform.alpha_scale);
+            return true;
+        case GL_COMBINE_RGB:
+            params[0] = static_cast<GLint>(envState.combine_rgb);
+            return true;
+        case GL_COMBINE_ALPHA:
+            params[0] = static_cast<GLint>(envState.combine_alpha);
+            return true;
+        case GL_SOURCE0_RGB:
+        case GL_SOURCE1_RGB:
+        case GL_SOURCE2_RGB:
+            params[0] = static_cast<GLint>(envState.source_rgb[pname - GL_SOURCE0_RGB]);
+            return true;
+        case GL_SOURCE0_ALPHA:
+        case GL_SOURCE1_ALPHA:
+        case GL_SOURCE2_ALPHA:
+            params[0] = static_cast<GLint>(envState.source_alpha[pname - GL_SOURCE0_ALPHA]);
+            return true;
+        case GL_OPERAND0_RGB:
+        case GL_OPERAND1_RGB:
+        case GL_OPERAND2_RGB:
+            params[0] = static_cast<GLint>(envState.operand_rgb[pname - GL_OPERAND0_RGB]);
+            return true;
+        case GL_OPERAND0_ALPHA:
+        case GL_OPERAND1_ALPHA:
+        case GL_OPERAND2_ALPHA:
+            params[0] = static_cast<GLint>(envState.operand_alpha[pname - GL_OPERAND0_ALPHA]);
+            return true;
+        default:
+            return false;
+        }
+    }
 }
 
 const GLubyte* glGetString(GLenum name) {
@@ -339,6 +502,42 @@ void glGetIntegerv(GLenum pname, GLint* params) {
         g_glFuncs.glGetIntegerv(pname, params);
         break;
     }
+}
+
+GLboolean glIsEnabled(GLenum cap) {
+    GLboolean enabled = GL_FALSE;
+    if (tryGetHijackedEnabled(cap, &enabled)) {
+        return enabled;
+    }
+
+    if (g_glFuncs.glIsEnabled) {
+        return g_glFuncs.glIsEnabled(cap);
+    }
+    return GL_FALSE;
+}
+
+void glGetTexEnvfv(GLenum target, GLenum pname, GLfloat* params) {
+    if (!params) {
+        throw std::invalid_argument("params pointer cannot be null");
+    }
+
+    if (target == GL_TEXTURE_ENV && tryGetTexEnvFloat(pname, params)) {
+        return;
+    }
+
+    std::memset(params, 0, sizeof(GLfloat) * ((pname == GL_TEXTURE_ENV_COLOR) ? 4 : 1));
+}
+
+void glGetTexEnviv(GLenum target, GLenum pname, GLint* params) {
+    if (!params) {
+        throw std::invalid_argument("params pointer cannot be null");
+    }
+
+    if (target == GL_TEXTURE_ENV && tryGetTexEnvInt(pname, params)) {
+        return;
+    }
+
+    std::memset(params, 0, sizeof(GLint) * ((pname == GL_TEXTURE_ENV_COLOR) ? 4 : 1));
 }
 
 void glGetFloatv(GLenum pname, GLfloat* params) {

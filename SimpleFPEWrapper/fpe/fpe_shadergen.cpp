@@ -1700,8 +1700,6 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
         default:
             if (i == 0) {
                 fs += std::format("        nextColor = previousColor * texcolor{};\n", i);
-            } else if (state.fpe_bools.lighting_enable) {
-                fs += "        nextColor = previousColor;\n";
             } else {
                 fs += std::format("        nextColor.rgb = previousColor.rgb * texcolor{0}.rgb;\n"
                                   "        nextColor.a = previousColor.a;\n", i);

@@ -32,6 +32,8 @@ extern "C"
     GLAPI GLAPIENTRY void glFrontFace(GLenum mode);
     GLAPI GLAPIENTRY void glActiveTexture(GLenum texture);
     GLAPI GLAPIENTRY void glClientActiveTexture(GLenum texture);
+    GLAPI void GLAPIENTRY glPushAttrib(GLbitfield mask);
+    GLAPI void GLAPIENTRY glPopAttrib(void);
     GLAPI void GLAPIENTRY glTexEnvf(GLenum target, GLenum pname, GLfloat param);
     GLAPI void GLAPIENTRY glTexEnvi(GLenum target, GLenum pname, GLint param);
     GLAPI void GLAPIENTRY glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params);

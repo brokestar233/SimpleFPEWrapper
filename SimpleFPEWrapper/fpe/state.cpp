@@ -14,6 +14,7 @@
 #include "pointer_utils.h"
 #include "../init.h"
 #include <cstdint>
+#include <vector>
 
 #define DEBUG 0
 
@@ -38,6 +39,25 @@ texture_env_state_t& current_texture_env_state() {
 
 texture_env_uniform_t& current_texture_env_uniform() {
     return g_glstate.fpe_uniform.texture_env[active_texture_index()];
+}
+
+struct attrib_stack_entry_t {
+    GLbitfield mask = 0;
+    fixed_function_bool_t fpe_bools{};
+    glm::vec4 current_color{1.f, 1.f, 1.f, 1.f};
+    GLint viewport[4] = {0, 0, 0, 0};
+    GLint scissor_box[4] = {0, 0, 0, 0};
+    GLboolean depth_mask = GL_TRUE;
+    GLint depth_func = GL_LESS;
+    GLboolean scissor_test = GL_FALSE;
+#if defined(GL_MULTISAMPLE)
+    GLboolean multisample = GL_FALSE;
+#endif
+};
+
+std::vector<attrib_stack_entry_t>& attrib_stack() {
+    static std::vector<attrib_stack_entry_t> stack;
+    return stack;
 }
 
 size_t texenv_param_count(GLenum pname) {
@@ -135,6 +155,7 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
         return true;
     // TODO: implement these states
     case GL_COLOR_MATERIAL:
+        bools->color_material_enable = enable;
         return true;
     case GL_LIGHT0:
     case GL_LIGHT1:
@@ -151,6 +172,7 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
         return true;
     }
     case GL_RESCALE_NORMAL:
+        bools->rescale_normal_enable = enable;
         return true;
     case GL_TEXTURE_2D: {
         const GLint textureIndex = static_cast<GLint>(g_glstate.fpe_state.active_texture - GL_TEXTURE0);
@@ -172,7 +194,13 @@ void glEnable(GLenum cap) {
     LIST_RECORD(glEnable, {}, cap)
     SFPEWDebugLog("STATE enable cap=%s", glEnumToString(cap));
 
-    if (hijack_fpe_states(cap, true, &g_glstate.fpe_state.fpe_bools)) return;
+    if (hijack_fpe_states(cap, true, &g_glstate.fpe_state.fpe_bools)) {
+        if (cap == GL_ALPHA_TEST && g_glFuncs.glEnable) {
+            g_glFuncs.glEnable(cap);
+            SFPEWDrainBackendErrors("state.enable");
+        }
+        return;
+    }
 
     g_glFuncs.glEnable(cap);
     SFPEWDrainBackendErrors("state.enable");
@@ -185,7 +213,13 @@ void glDisable(GLenum cap) {
     LIST_RECORD(glDisable, {}, cap)
     SFPEWDebugLog("STATE disable cap=%s", glEnumToString(cap));
 
-    if (hijack_fpe_states(cap, false, &g_glstate.fpe_state.fpe_bools)) return;
+    if (hijack_fpe_states(cap, false, &g_glstate.fpe_state.fpe_bools)) {
+        if (cap == GL_ALPHA_TEST && g_glFuncs.glDisable) {
+            g_glFuncs.glDisable(cap);
+            SFPEWDrainBackendErrors("state.disable");
+        }
+        return;
+    }
 
     g_glFuncs.glDisable(cap);
     SFPEWDrainBackendErrors("state.disable");
@@ -302,6 +336,108 @@ void glClientActiveTexture(GLenum texture) {
     sfpew_list_glClientActiveTexture(texture);
 }
 
+void glPushAttrib(GLbitfield mask) {
+    LIST_RECORD(glPushAttrib, {}, mask)
+
+    attrib_stack_entry_t entry{};
+    entry.mask = mask;
+    entry.fpe_bools = g_glstate.fpe_state.fpe_bools;
+    entry.current_color = g_glstate.fpe_state.fpe_draw.current_data.color;
+
+    if ((mask & GL_VIEWPORT_BIT) != 0) {
+        g_glFuncs.glGetIntegerv(GL_VIEWPORT, entry.viewport);
+    }
+    if ((mask & GL_SCISSOR_BIT) != 0) {
+        g_glFuncs.glGetIntegerv(GL_SCISSOR_BOX, entry.scissor_box);
+        entry.scissor_test = ::glIsEnabled(GL_SCISSOR_TEST);
+    }
+    if ((mask & GL_DEPTH_BUFFER_BIT) != 0) {
+        GLint depthMask = 0;
+        g_glFuncs.glGetIntegerv(GL_DEPTH_WRITEMASK, &depthMask);
+        g_glFuncs.glGetIntegerv(GL_DEPTH_FUNC, &entry.depth_func);
+        entry.depth_mask = depthMask ? GL_TRUE : GL_FALSE;
+    }
+#if defined(GL_MULTISAMPLE_BIT) && defined(GL_MULTISAMPLE)
+    if ((mask & GL_MULTISAMPLE_BIT) != 0) {
+        entry.multisample = ::glIsEnabled(GL_MULTISAMPLE);
+    }
+#endif
+
+    attrib_stack().push_back(entry);
+}
+
+void glPopAttrib(void) {
+    LIST_RECORD(glPopAttrib, {})
+
+    auto& stack = attrib_stack();
+    if (stack.empty()) {
+        return;
+    }
+
+    const attrib_stack_entry_t entry = stack.back();
+    stack.pop_back();
+
+    if ((entry.mask & (GL_ENABLE_BIT | GL_TEXTURE_BIT | GL_LIGHTING_BIT)) != 0) {
+        const auto& currentBools = g_glstate.fpe_state.fpe_bools;
+        const auto apply_cap = [&](GLenum cap, bool want, bool have) {
+            if (want == have) {
+                return;
+            }
+            if (want) {
+                ::glEnable(cap);
+            } else {
+                ::glDisable(cap);
+            }
+        };
+
+        apply_cap(GL_FOG, entry.fpe_bools.fog_enable, currentBools.fog_enable);
+        apply_cap(GL_LIGHTING, entry.fpe_bools.lighting_enable, currentBools.lighting_enable);
+        apply_cap(GL_ALPHA_TEST, entry.fpe_bools.alpha_test_enable, currentBools.alpha_test_enable);
+        apply_cap(GL_COLOR_MATERIAL, entry.fpe_bools.color_material_enable, currentBools.color_material_enable);
+        apply_cap(GL_RESCALE_NORMAL, entry.fpe_bools.rescale_normal_enable, currentBools.rescale_normal_enable);
+        for (int i = 0; i < MAX_LIGHTS; ++i) {
+            apply_cap(static_cast<GLenum>(GL_LIGHT0 + i), entry.fpe_bools.light_enable[i], currentBools.light_enable[i]);
+        }
+
+        const GLenum previousActiveTexture = g_glstate.fpe_state.active_texture;
+        for (int i = 0; i < MAX_TEX; ++i) {
+            ::glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + i));
+            apply_cap(GL_TEXTURE_2D, entry.fpe_bools.texture_2d_enable[i], currentBools.texture_2d_enable[i]);
+        }
+        ::glActiveTexture(previousActiveTexture);
+    }
+
+    if ((entry.mask & GL_CURRENT_BIT) != 0) {
+        ::glColor4f(entry.current_color.r, entry.current_color.g, entry.current_color.b, entry.current_color.a);
+    }
+    if ((entry.mask & GL_VIEWPORT_BIT) != 0) {
+        g_glFuncs.glViewport(entry.viewport[0], entry.viewport[1], entry.viewport[2], entry.viewport[3]);
+        SFPEWDrainBackendErrors("state.pop_attrib.viewport");
+    }
+    if ((entry.mask & GL_SCISSOR_BIT) != 0) {
+        g_glFuncs.glScissor(entry.scissor_box[0], entry.scissor_box[1], entry.scissor_box[2], entry.scissor_box[3]);
+        SFPEWDrainBackendErrors("state.pop_attrib.scissor_box");
+        if (entry.scissor_test) {
+            ::glEnable(GL_SCISSOR_TEST);
+        } else {
+            ::glDisable(GL_SCISSOR_TEST);
+        }
+    }
+    if ((entry.mask & GL_DEPTH_BUFFER_BIT) != 0) {
+        ::glDepthMask(entry.depth_mask);
+        ::glDepthFunc(static_cast<GLenum>(entry.depth_func));
+    }
+#if defined(GL_MULTISAMPLE_BIT) && defined(GL_MULTISAMPLE)
+    if ((entry.mask & GL_MULTISAMPLE_BIT) != 0) {
+        if (entry.multisample) {
+            ::glEnable(GL_MULTISAMPLE);
+        } else {
+            ::glDisable(GL_MULTISAMPLE);
+        }
+    }
+#endif
+}
+
 void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
     LIST_RECORD(glTexEnvf, {}, target, pname, param)
 
@@ -408,6 +544,10 @@ void glAlphaFunc(GLenum func, GLclampf ref) {
 
     g_glstate.fpe_state.alpha_func = func;
     g_glstate.fpe_uniform.alpha_ref = ref;
+    if (g_glFuncs.glAlphaFunc) {
+        g_glFuncs.glAlphaFunc(func, ref);
+        SFPEWDrainBackendErrors("state.alpha_func");
+    }
 }
 
 void glFogf(GLenum pname, GLfloat param) {

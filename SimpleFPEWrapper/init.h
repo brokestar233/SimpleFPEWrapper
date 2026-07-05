@@ -27,6 +27,11 @@ void SFPEWDrainBackendErrors(const char* stage);
 SFPEW_APIENTRY const GLubyte* glGetString(GLenum name);
 SFPEW_APIENTRY const GLubyte* glGetStringi(GLenum name, GLuint index);
 SFPEW_APIENTRY void glGetIntegerv(GLenum pname, GLint* params);
+SFPEW_APIENTRY GLboolean glIsEnabled(GLenum cap);
+SFPEW_APIENTRY void glGetTexEnvfv(GLenum target, GLenum pname, GLfloat* params);
+SFPEW_APIENTRY void glGetTexEnviv(GLenum target, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glPushAttrib(GLbitfield mask);
+SFPEW_APIENTRY void glPopAttrib(void);
 SFPEW_APIENTRY void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
 SFPEW_APIENTRY void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);
 SFPEW_APIENTRY void glTexEnvf(GLenum target, GLenum pname, GLfloat param);
@@ -36,6 +41,7 @@ SFPEW_APIENTRY void glTexEnviv(GLenum target, GLenum pname, const GLint* params)
 SFPEW_APIENTRY void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                                  GLint border, GLenum format, GLenum type, const void* pixels);
 SFPEW_APIENTRY void glDrawArrays(GLenum mode, GLint first, GLsizei count);
+SFPEW_APIENTRY void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
 SFPEW_APIENTRY void glGetFloatv(GLenum pname, GLfloat* params);
 SFPEW_APIENTRY void glBindFramebuffer(GLenum target, GLuint framebuffer);
 SFPEW_APIENTRY void glDeleteFramebuffers(GLsizei n, const GLuint* framebuffers);

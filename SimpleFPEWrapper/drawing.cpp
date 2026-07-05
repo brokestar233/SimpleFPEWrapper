@@ -222,6 +222,137 @@ bool TryRecordDisplayListDrawArraysSnapshot(GLenum mode, GLint first, GLsizei co
     return true;
 }
 
+bool ReadElementIndex(GLenum type, const void* indices, GLsizei elementIndex, GLuint& outIndex) {
+    if (indices == nullptr || elementIndex < 0) {
+        return false;
+    }
+
+    switch (type) {
+    case GL_UNSIGNED_BYTE:
+        outIndex = reinterpret_cast<const GLubyte*>(indices)[elementIndex];
+        return true;
+    case GL_UNSIGNED_SHORT:
+        outIndex = reinterpret_cast<const GLushort*>(indices)[elementIndex];
+        return true;
+    case GL_UNSIGNED_INT:
+        outIndex = reinterpret_cast<const GLuint*>(indices)[elementIndex];
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool BuildPackedIndexedClientArrayLayout(const vertex_pointer_array_t& source,
+                                         GLenum indexType,
+                                         const void* indices,
+                                         GLsizei count,
+                                         const GLint* constant_sizes,
+                                         vertex_pointer_array_t& packedLayout,
+                                         std::vector<std::uint8_t>& packedData) {
+    struct CopyInfo {
+        const std::uint8_t* sourceBase = nullptr;
+        std::size_t sourceStride = 0;
+        std::size_t elementSize = 0;
+        std::size_t destOffset = 0;
+    };
+
+    packedLayout.reset();
+    packedLayout.enabled_pointers = source.enabled_pointers;
+    packedLayout.dirty = true;
+    packedLayout.buffer_based = true;
+
+    std::vector<CopyInfo> copies(VERTEX_POINTER_COUNT);
+    std::size_t packedStride = 0;
+
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        const bool enabled = ((source.enabled_pointers >> i) & 1) != 0;
+        if (!enabled) {
+            continue;
+        }
+
+        const auto& srcAttr = source.attributes[i];
+        const int typeBytes = PointerUtils::type_to_bytes(srcAttr.type);
+        if (srcAttr.pointer == nullptr || srcAttr.size <= 0 || typeBytes <= 0) {
+            return false;
+        }
+
+        const std::size_t elementSize = static_cast<std::size_t>(srcAttr.size) * static_cast<std::size_t>(typeBytes);
+        const std::size_t sourceStride =
+            srcAttr.stride > 0 ? static_cast<std::size_t>(srcAttr.stride) : elementSize;
+
+        auto& dstAttr = packedLayout.attributes[i];
+        dstAttr = srcAttr;
+        dstAttr.pointer = reinterpret_cast<const void*>(packedStride);
+        dstAttr.stride = 0;
+
+        copies[i] = {
+            .sourceBase = reinterpret_cast<const std::uint8_t*>(srcAttr.pointer),
+            .sourceStride = sourceStride,
+            .elementSize = elementSize,
+            .destOffset = packedStride,
+        };
+        packedStride += elementSize;
+    }
+
+    if (packedStride == 0) {
+        return false;
+    }
+
+    packedLayout.stride = static_cast<GLsizei>(packedStride);
+    packedLayout.starting_pointer = nullptr;
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        const bool enabled = ((packedLayout.enabled_pointers >> i) & 1) != 0;
+        if (!enabled) {
+            continue;
+        }
+        packedLayout.attributes[i].stride = packedLayout.stride;
+    }
+    packedLayout.generate_compressed_index(constant_sizes);
+
+    packedData.resize(static_cast<std::size_t>(count) * packedStride);
+    for (GLsizei vertexIndex = 0; vertexIndex < count; ++vertexIndex) {
+        GLuint sourceVertexIndex = 0;
+        if (!ReadElementIndex(indexType, indices, vertexIndex, sourceVertexIndex)) {
+            return false;
+        }
+
+        const std::size_t destVertexBase = static_cast<std::size_t>(vertexIndex) * packedStride;
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            const bool enabled = ((packedLayout.enabled_pointers >> i) & 1) != 0;
+            if (!enabled) {
+                continue;
+            }
+
+            const auto& copy = copies[i];
+            std::memcpy(packedData.data() + destVertexBase + copy.destOffset,
+                        copy.sourceBase + static_cast<std::size_t>(sourceVertexIndex) * copy.sourceStride,
+                        copy.elementSize);
+        }
+    }
+    return true;
+}
+
+bool TryRecordDisplayListDrawElementsSnapshot(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+    const auto& recordingState = DisplayListManager::recordingStateRef();
+    const auto& rawVpa = recordingState.vertexpointer_array;
+    if (!AnyEnabledAttributeUsesClientMemoryForDisplayList(rawVpa)) {
+        return false;
+    }
+
+    const auto attributeSizes = build_attribute_size_table(recordingState.current_data.sizes);
+    vertex_pointer_array_t packedLayout;
+    std::vector<std::uint8_t> packedData;
+    if (!BuildPackedIndexedClientArrayLayout(rawVpa, type, indices, count, attributeSizes.data(), packedLayout,
+                                             packedData)) {
+        return false;
+    }
+
+    DisplayListManager::recordCustom(
+        std::make_unique<DisplayListDrawArraysSnapshotCmd>(
+            mode, count, std::move(packedLayout), recordingState.current_data, std::move(packedData)));
+    return true;
+}
+
 void sfpew_list_glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     SFPEWDebugLog("DRAWARRAYS enter mode=%s first=%d count=%d compat=%d",
                   glEnumToString(mode),
@@ -277,4 +408,55 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     }
 
     sfpew_list_glDrawArrays(mode, first, count);
+}
+
+void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+    if (!disableRecording && DisplayListManager::shouldRecord()) {
+        TryRecordDisplayListDrawElementsSnapshot(mode, count, type, indices);
+        if (DisplayListManager::shouldFinish()) return;
+    }
+
+    if (!ShouldUseFpeDrawArrays()) {
+        g_glFuncs.glDrawElements(mode, count, type, indices);
+        SFPEWDrainBackendErrors("glDrawElements.bypass");
+        return;
+    }
+
+    const auto& rawVpa = g_glstate.fpe_state.vertexpointer_array;
+    if (!AnyEnabledAttributeUsesClientMemoryForDisplayList(rawVpa)) {
+        g_glFuncs.glDrawElements(mode, count, type, indices);
+        SFPEWDrainBackendErrors("glDrawElements.no_client_memory");
+        return;
+    }
+
+    const auto attributeSizes = build_attribute_size_table(g_glstate.fpe_state.fpe_draw.current_data.sizes);
+    vertex_pointer_array_t packedLayout;
+    std::vector<std::uint8_t> packedData;
+    if (!BuildPackedIndexedClientArrayLayout(rawVpa, type, indices, count, attributeSizes.data(), packedLayout,
+                                             packedData)) {
+        g_glFuncs.glDrawElements(mode, count, type, indices);
+        SFPEWDrainBackendErrors("glDrawElements.build_failed");
+        return;
+    }
+
+    auto savedVpa = g_glstate.fpe_state.vertexpointer_array;
+    auto savedNormalizedVpa = g_glstate.fpe_state.normalized_vpa;
+    const auto* base = packedData.data();
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        const bool enabled = ((packedLayout.enabled_pointers >> i) & 1) != 0;
+        if (!enabled) {
+            continue;
+        }
+
+        const std::uintptr_t offset = reinterpret_cast<std::uintptr_t>(packedLayout.attributes[i].pointer);
+        packedLayout.attributes[i].pointer = base + offset;
+    }
+    packedLayout.starting_pointer = base;
+    packedLayout.dirty = true;
+    packedLayout.buffer_based = true;
+
+    g_glstate.fpe_state.vertexpointer_array = packedLayout;
+    sfpew_list_glDrawArrays(mode, 0, count);
+    g_glstate.fpe_state.normalized_vpa = savedNormalizedVpa;
+    g_glstate.fpe_state.vertexpointer_array = savedVpa;
 }

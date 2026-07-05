@@ -140,11 +140,19 @@ glstate_t& glstate_t::get_instance() {
 
 GLsizei type_size(GLenum type) {
     switch (type) {
+    case GL_BYTE:
+    case GL_UNSIGNED_BYTE:
+        return 1;
     case GL_SHORT:
+    case GL_UNSIGNED_SHORT:
+    case GL_HALF_FLOAT:
         return 2;
+    case GL_3_BYTES:
+        return 3;
     case GL_INT:
-        return 4;
+    case GL_UNSIGNED_INT:
     case GL_FLOAT:
+    case GL_FIXED:
         return 4;
     case GL_DOUBLE:
         return 8;

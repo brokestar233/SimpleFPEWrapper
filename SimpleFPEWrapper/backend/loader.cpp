@@ -148,6 +148,7 @@ namespace SFPEW::Utils::BackendLoader {
             INIT_BACKENDGL_FUNC(glDisableVertexAttribArray)
             INIT_BACKENDGL_FUNC(glDrawArrays)
             INIT_BACKENDGL_FUNC(glDrawElements)
+            INIT_BACKENDGL_FUNC(glAlphaFunc)
             INIT_BACKENDGL_FUNC(glEnable)
             INIT_BACKENDGL_FUNC(glEnableVertexAttribArray)
             INIT_BACKENDGL_FUNC(glFinish)

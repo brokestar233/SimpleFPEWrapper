@@ -76,6 +76,8 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     bool fog_enable = false;        // GL_FOG
     bool lighting_enable = false;   // GL_LIGHTING
     bool alpha_test_enable = false; // GL_ALPHA_TEST
+    bool color_material_enable = false;
+    bool rescale_normal_enable = false;
     bool texture_2d_enable[MAX_TEX] = {false};
     bool light_enable[MAX_LIGHTS] = {false};
 };

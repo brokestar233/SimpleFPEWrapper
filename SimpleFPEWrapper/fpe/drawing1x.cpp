@@ -172,6 +172,18 @@ void glNormal3f(GLfloat nx, GLfloat ny, GLfloat nz) {
     mglNormal<GLfloat, 3>({nx, ny, nz});
 }
 
+void glTexCoord2d(GLdouble s, GLdouble t) {
+    LIST_RECORD(glTexCoord2d, {}, s, t)
+
+    mglTexCoord<GLdouble, 2>({s, t}, 0);
+}
+
+void glTexCoord2dv(const GLdouble* v) {
+    if (v) {
+        glTexCoord2d(v[0], v[1]);
+    }
+}
+
 void glTexCoord2f(GLfloat s, GLfloat t) {
     // LOG()
     //  LOG_D("glTexCoord2f(%.2f, %.2f)", s, t)
