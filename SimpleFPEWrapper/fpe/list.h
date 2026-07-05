@@ -9,6 +9,7 @@
 #pragma once
 
 #include <GL/gl.h>
+#include "types.h"
 #include <unordered_map>
 
 #include <vector>
@@ -54,12 +55,21 @@ public:
 };
 
 class DisplayListManager {
+public:
+    struct RecordingState {
+        GLenum client_active_texture;
+        vertex_pointer_array_t vertexpointer_array;
+        fixed_function_draw_data_t current_data;
+    };
+
+private:
     inline static GLuint nextListId = 1;
     inline static GLenum listMode = GL_COMPILE;
     inline static GLboolean calling = GL_FALSE;
 
     inline static unordered_map<GLuint, DisplayList> lists;
     inline static GLuint currentListID = 0;
+    inline static RecordingState recordingState;
 
     template <auto Func, typename... ProcessedArgs>
     void recordImpl(std::vector<std::vector<uint8_t>>&& buffers, ProcessedArgs&&... args) {
@@ -89,6 +99,8 @@ public:
         currentListID = listID;
         listMode = mode;
         lists.try_emplace(listID).first->second.clear();
+        recordingState = RecordingState{};
+        recordingState.client_active_texture = GL_TEXTURE0;
     }
 
     static void endRecord() {
@@ -103,6 +115,16 @@ public:
     static int shouldRecord() { return !calling && currentListID != 0; }
 
     static int shouldFinish() { return (currentListID != 0 && listMode == GL_COMPILE) ? 1 : 0; }
+
+    static void primeRecordingState(GLenum clientActiveTexture,
+                                    const vertex_pointer_array_t& vertexPointerArray,
+                                    const fixed_function_draw_data_t& currentData) {
+        recordingState.client_active_texture = clientActiveTexture;
+        recordingState.vertexpointer_array = vertexPointerArray;
+        recordingState.current_data = currentData;
+    }
+
+    static RecordingState& recordingStateRef() { return recordingState; }
 
     template <auto Func, typename... Args>
     void record(const std::vector<std::pair<size_t, size_t>>& pointerArgs, Args&&... args) {
@@ -137,6 +159,10 @@ public:
                                                 std::forward<decltype(processedArgs)>(processedArgs)...);
             },
             argsTuple);
+    }
+
+    static void recordCustom(std::unique_ptr<GLCmd> cmd) {
+        lists[currentListID].emplace_back(std::move(cmd));
     }
 
     static void callList(GLuint listID) {

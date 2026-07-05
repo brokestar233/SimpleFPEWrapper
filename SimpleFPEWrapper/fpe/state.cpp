@@ -15,6 +15,15 @@
 
 #define DEBUG 0
 
+namespace {
+
+void sfpew_list_glClientActiveTexture(GLenum texture) {
+    g_glstate.fpe_state.client_active_texture = texture;
+    SFPEWDebugLog("STATE client_active_texture=%s", glEnumToString(texture));
+}
+
+}
+
 #if GLOBAL_DEBUG || DEBUG
 #pragma clang optimize off
 #endif
@@ -183,10 +192,13 @@ void glClientActiveTexture(GLenum texture) {
     // LOG()
     // LOG_D("glClientActiveTexture(GL_TEXTURE%d)", texture - GL_TEXTURE0)
 
-    // Todo: this function can be added to displayList when GL 1.3+ is disabled
+    if (!disableRecording && DisplayListManager::shouldRecord()) {
+        displayListManager.record<sfpew_list_glClientActiveTexture>({}, texture);
+        DisplayListManager::recordingStateRef().client_active_texture = texture;
+        if (DisplayListManager::shouldFinish()) return;
+    }
 
-    g_glstate.fpe_state.client_active_texture = texture;
-    SFPEWDebugLog("STATE client_active_texture=%s", glEnumToString(texture));
+    sfpew_list_glClientActiveTexture(texture);
 }
 
 void glAlphaFunc(GLenum func, GLclampf ref) {

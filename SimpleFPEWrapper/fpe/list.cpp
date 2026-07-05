@@ -38,6 +38,9 @@ void glNewList(GLuint list, GLenum mode) {
     // LOG()
     // LOG_D("glNewList(%d, %s)", list, glEnumToString(mode))
     DisplayListManager::startRecord(list, mode);
+    DisplayListManager::primeRecordingState(g_glstate.fpe_state.client_active_texture,
+                                            g_glstate.fpe_state.vertexpointer_array,
+                                            g_glstate.fpe_state.fpe_draw.current_data);
 }
 
 void glEndList() {
