@@ -19,6 +19,23 @@
 
 namespace {
 
+bool ShouldUseFpeDrawArrays() {
+    if (!g_sfpewCompatMode) {
+        return false;
+    }
+
+    const auto& vpa = g_glstate.fpe_state.vertexpointer_array;
+    const bool hasVertexArray = (vpa.enabled_pointers & 0x1u) != 0;
+    if (hasVertexArray) {
+        return true;
+    }
+
+    // If there is no fixed-function position array, this draw is much more likely to belong to the
+    // programmable pipeline path that uses generic vertex attributes. Feeding it into FPE generates
+    // a shader that references `Position` without declaring it and blows up on newer versions.
+    return false;
+}
+
 bool AttributeUsesClientMemoryForDisplayList(const vertexattribute_t& attr) {
     if (attr.pointer == nullptr || attr.size <= 0) {
         return false;
@@ -211,6 +228,16 @@ void sfpew_list_glDrawArrays(GLenum mode, GLint first, GLsizei count) {
                   first,
                   count,
                   g_sfpewCompatMode ? 1 : 0);
+    if (!ShouldUseFpeDrawArrays()) {
+        SFPEWDebugLog("DRAWARRAYS bypass_fpe mode=%s first=%d count=%d enabled=0x%x",
+                      glEnumToString(mode),
+                      first,
+                      count,
+                      g_glstate.fpe_state.vertexpointer_array.enabled_pointers);
+        g_glFuncs.glDrawArrays(mode, first, count);
+        SFPEWDrainBackendErrors("glDrawArrays.bypass");
+        return;
+    }
     GET_PREV_PROGRAM
     GLint prev_vao = 0;
     GLint prev_vbo = 0;
