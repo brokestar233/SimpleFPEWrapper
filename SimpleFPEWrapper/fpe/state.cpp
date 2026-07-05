@@ -153,7 +153,6 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     case GL_ALPHA_TEST:
         bools->alpha_test_enable = enable;
         return true;
-    // TODO: implement these states
     case GL_COLOR_MATERIAL:
         bools->color_material_enable = enable;
         return true;

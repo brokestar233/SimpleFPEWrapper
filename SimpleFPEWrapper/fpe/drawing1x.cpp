@@ -419,12 +419,6 @@ void glColor3usv(const GLushort* v) {
 
 void glColor4f(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
     // LOG()
-    /* TODO: This can cause problem if per-vertex color is used,
-     *  (using multiple glVertex*() calls in conjunction with
-     *  multiple glColor4f() calls, rather than a single glColor4f()
-     *  call and some gl*Pointer() call)
-     *  Fix for that situation later.
-     */
     // LOG_D("glColor4f(%f, %f, %f, %f)", red, green, blue, alpha)
 
     LIST_RECORD(glColor4f, {}, red, green, blue, alpha)

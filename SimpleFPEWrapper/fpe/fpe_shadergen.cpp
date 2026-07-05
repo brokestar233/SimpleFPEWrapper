@@ -1346,7 +1346,6 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
 
             scratch.last_stage_linkage += "in " + linkage;
 
-            // TODO: if not this simple? Fog / Vertex light?
             if (attributeUsage == GL_COLOR_ARRAY) {
                 switch (componentCount) {
                 case 1:
@@ -1621,7 +1620,7 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
         }
     }
 
-    // TODO: Replace this hardcode with something better...
+    // NOTE: Fragment entry point is still emitted as a literal string here.
     fs += "void main() {\n";
 
     if (scratch.has_vertex_color)
