@@ -743,3 +743,42 @@ void glLightModeliv(GLenum pname, const GLint* params) {
         break;
     }
 }
+
+void glMaterialf(GLenum face, GLenum pname, GLfloat param) {
+    LIST_RECORD(glMaterialf, {}, face, pname, param)
+    SFPEWDebugLog("STATE materialf face=%s pname=%s param=%.3f",
+                  glEnumToString(face),
+                  glEnumToString(pname),
+                  param);
+}
+
+void glMateriali(GLenum face, GLenum pname, GLint param) {
+    LIST_RECORD(glMateriali, {}, face, pname, param)
+    SFPEWDebugLog("STATE materiali face=%s pname=%s param=%d",
+                  glEnumToString(face),
+                  glEnumToString(pname),
+                  param);
+}
+
+void glMaterialfv(GLenum face, GLenum pname, const GLfloat* params) {
+    LIST_RECORD(glMaterialfv, {{2, PointerUtils::pname_to_count(pname) * sizeof(GLfloat)}}, face, pname, params)
+    SFPEWDebugLog("STATE materialfv face=%s pname=%s params=%p",
+                  glEnumToString(face),
+                  glEnumToString(pname),
+                  params);
+}
+
+void glMaterialiv(GLenum face, GLenum pname, const GLint* params) {
+    LIST_RECORD(glMaterialiv, {{2, PointerUtils::pname_to_count(pname) * sizeof(GLint)}}, face, pname, params)
+    SFPEWDebugLog("STATE materialiv face=%s pname=%s params=%p",
+                  glEnumToString(face),
+                  glEnumToString(pname),
+                  params);
+}
+
+void glColorMaterial(GLenum face, GLenum mode) {
+    LIST_RECORD(glColorMaterial, {}, face, mode)
+    SFPEWDebugLog("STATE color_material face=%s mode=%s",
+                  glEnumToString(face),
+                  glEnumToString(mode));
+}

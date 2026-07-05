@@ -55,8 +55,10 @@ int PointerUtils::pname_to_count(GLenum pname) {
     case GL_LIGHT_MODEL_COLOR_CONTROL: // lightModel
     case GL_LIGHT_MODEL_LOCAL_VIEWER:
     case GL_LIGHT_MODEL_TWO_SIDE:
+    case GL_SHININESS: // material
         return 1;
     case GL_SPOT_DIRECTION: // light
+    case GL_COLOR_INDEXES:  // material
         return 3;
     case GL_FOG_COLOR: // fog
     case GL_AMBIENT:   // light
@@ -64,6 +66,8 @@ int PointerUtils::pname_to_count(GLenum pname) {
     case GL_SPECULAR:
     case GL_POSITION:
     case GL_LIGHT_MODEL_AMBIENT: // lightModel
+    case GL_EMISSION:            // material
+    case GL_AMBIENT_AND_DIFFUSE:
         return 4;
     default:
         // LOG_E("unsupported OpenGL pname: %s", glEnumToString(pname))
