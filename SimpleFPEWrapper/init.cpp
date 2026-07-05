@@ -19,6 +19,7 @@ SFPEW::External::EGLFunctionsTable g_eglFuncs;
 SFPEW::External::BackendGLFunctionsTable g_glFuncs;
 bool g_sfpewCompatMode = true;
 bool g_sfpewDebugLogging = false;
+bool g_sfpewBackendAlphaTestAvailable = false;
 
 namespace {
     constexpr const char* kPluginConfigPath = "/storage/emulated/0/FCL/mobilegl-plugin.cfg";
@@ -199,6 +200,9 @@ void Init() {
     AppendLoaderSymbolInfo("glEnable", reinterpret_cast<const void*>(g_glFuncs.glEnable));
     AppendLoaderSymbolInfo("glBlendFunc", reinterpret_cast<const void*>(g_glFuncs.glBlendFunc));
     AppendLoaderSymbolInfo("glBindVertexArray", reinterpret_cast<const void*>(g_glFuncs.glBindVertexArray));
+
+    g_sfpewBackendAlphaTestAvailable = (g_glFuncs.glAlphaFunc != nullptr);
+    SFPEWDebugLog("Backend alpha_test_available=%d", g_sfpewBackendAlphaTestAvailable ? 1 : 0);
 
     SFPEWDebugLog("Backend acquired egl=%s compat_mode=%d", eglLibName.c_str(), g_sfpewCompatMode ? 1 : 0);
     init_fpe();

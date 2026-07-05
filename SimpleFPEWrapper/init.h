@@ -18,6 +18,7 @@ extern SFPEW::External::EGLFunctionsTable g_eglFuncs;
 extern SFPEW::External::BackendGLFunctionsTable g_glFuncs;
 extern bool g_sfpewCompatMode;
 extern bool g_sfpewDebugLogging;
+extern bool g_sfpewBackendAlphaTestAvailable;
 
 const char* glEnumToString(GLenum e);
 bool SFPEWIsDebugLoggingEnabled();

@@ -1320,6 +1320,11 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
 
             std::string in_name = enabled ? vp2in_name(vp.usage, i) : vp2in_name(attributeUsage, i);
             std::string type = enabled ? type2str(vp.type, vp.size) : type2str(GL_FLOAT, 4);
+            if (attributeUsage == GL_VERTEX_ARRAY) {
+                // Keep position attributes as vec4 in generated shaders so 1D/2D/3D client arrays
+                // use GL's default generic-attribute fill values instead of custom constructor chains.
+                type = "vec4";
+            }
 
             vs += std::format("layout (location = {}) in {} {};\n", vpa.cidx(i), type, in_name);
 
@@ -1414,25 +1419,8 @@ void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, st
 }
 
 void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
-    std::string positionExpr = "vec4(Position, 1.0)";
-    switch (scratch.position_size) {
-    case 1:
-        positionExpr = "vec4(Position, 0.0, 0.0, 1.0)";
-        break;
-    case 2:
-        positionExpr = "vec4(Position, 0.0, 1.0)";
-        break;
-    case 4:
-        positionExpr = "Position";
-        break;
-    default:
-        break;
-    }
-
     vs += "void main() {\n";
-    vs += "    vec4 fpePosition = ";
-    vs += positionExpr;
-    vs += ";\n";
+    vs += "    vec4 fpePosition = Position;\n";
     vs += "    gl_Position = ModelViewProjMat * fpePosition;\n";
     if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable) {
         vs += "    vec4 viewPosition = ModelViewMat * fpePosition;\n";
@@ -1475,7 +1463,7 @@ void add_fs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, st
         }
     }
 
-    if (state.fpe_bools.alpha_test_enable) {
+    if (state.fpe_bools.alpha_test_enable && !g_sfpewBackendAlphaTestAvailable) {
         fs += mg_alpharef_uniform;
     }
 
@@ -1710,7 +1698,7 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     }
 
     // Alpha test
-    if (state.fpe_bools.alpha_test_enable)
+    if (state.fpe_bools.alpha_test_enable && !g_sfpewBackendAlphaTestAvailable)
         fs += alpha_test(state.alpha_func, "color", "alpharef");
     else
         fs += "    // Alpha Test\n"
