@@ -207,6 +207,10 @@ bool fpe_inited = false;
 int init_fpe() {
     // LOG_I("Initializing fixed-function pipeline...")
 
+    g_glstate.last_array_binding_hash_valid = false;
+    g_glstate.last_array_binding_vao = 0;
+    g_glstate.last_array_binding_hash = 0;
+
     g_glFuncs.glGenVertexArrays(1, &g_glstate.fpe_state.fpe_vao);
 
     g_glFuncs.glGenBuffers(1, &g_glstate.fpe_state.fpe_vbo);

@@ -12,6 +12,42 @@
 #include <cstdio>
 #define DEBUG 0
 
+namespace {
+    bool HasConstantAttributes(const vertex_pointer_array_t& va, const fixed_function_draw_size_t& sizes) {
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            const bool enabled = ((va.enabled_pointers >> i) & 1) != 0;
+            if (!enabled && size_for_attribute_index(sizes, i) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    uint64_t ComputeArrayBindingHash(const vertex_pointer_array_t& va) {
+        XXHash64 hash(glstate_t::s_hash_seed);
+        hash.add(&va.enabled_pointers, sizeof(va.enabled_pointers));
+        hash.add(&va.stride, sizeof(va.stride));
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            const bool enabled = ((va.enabled_pointers >> i) & 1) != 0;
+            if (!enabled) {
+                continue;
+            }
+
+            const auto& vp = va.attributes[i];
+            const GLuint cidx = va.cidx(i);
+            const uint64_t pointerValue = reinterpret_cast<uint64_t>(vp.pointer);
+            hash.add(&i, sizeof(i));
+            hash.add(&cidx, sizeof(cidx));
+            hash.add(&vp.size, sizeof(vp.size));
+            hash.add(&vp.type, sizeof(vp.type));
+            hash.add(&vp.normalized, sizeof(vp.normalized));
+            hash.add(&vp.stride, sizeof(vp.stride));
+            hash.add(&pointerValue, sizeof(pointerValue));
+        }
+        return hash.hash();
+    }
+}
+
 void glstate_t::send_uniforms(const program_t& program) {
     // LOG()
 
@@ -269,11 +305,26 @@ void glstate_t::save_vao(const uint64_t key, const GLuint vao) {
     fpe_vaos[key] = vao;
 }
 
-bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va) const {
+bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va) {
     // LOG()
 
     //    auto& va = fpe_state.vertexpointer_array;
     if (!va.dirty) return false;
+
+    const bool hasConstantAttributes = HasConstantAttributes(va, fpe_state.fpe_draw.current_data.sizes);
+    if (!hasConstantAttributes) {
+        const uint64_t arrayBindingHash = ComputeArrayBindingHash(va);
+        if (last_array_binding_hash_valid &&
+            last_array_binding_vao == fpe_state.fpe_vao &&
+            last_array_binding_hash == arrayBindingHash) {
+            return false;
+        }
+        last_array_binding_hash = arrayBindingHash;
+        last_array_binding_vao = fpe_state.fpe_vao;
+        last_array_binding_hash_valid = true;
+    } else {
+        last_array_binding_hash_valid = false;
+    }
 
     auto drainAttrStage = [](const char* op, GLuint cidx, GLenum usage) {
         if (!SFPEWIsDebugLoggingEnabled()) {

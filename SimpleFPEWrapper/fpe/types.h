@@ -314,6 +314,9 @@ struct glstate_t {
     void send_uniforms(const program_t& program);
 
     XXHash64 p_hash = XXHash64(s_hash_seed);
+    uint64_t last_array_binding_hash = 0;
+    bool last_array_binding_hash_valid = false;
+    GLuint last_array_binding_vao = 0;
 
     uint64_t program_hash(bool reset = true);
 
@@ -325,5 +328,5 @@ struct glstate_t {
 
     void save_vao(const uint64_t key, const GLuint vao);
 
-    bool send_vertex_attributes(const vertex_pointer_array_t& va) const;
+    bool send_vertex_attributes(const vertex_pointer_array_t& va);
 };
