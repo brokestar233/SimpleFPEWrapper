@@ -51,13 +51,22 @@ void glEnd() {
 
     // actual assembly work, and draw!
     {
-        g_glstate.fpe_state.fpe_draw.compile_vertexattrib(raw_va);
-
         auto& va = g_glstate.fpe_state.normalized_vpa;
-        va = raw_va.normalize();
-        // Need to generate_compressed_index first (shadergen will use that)
-        const auto attributeSizes = build_attribute_size_table(g_glstate.fpe_state.fpe_draw.current_data.sizes);
-        va.generate_compressed_index(attributeSizes.data());
+        if (s.cached_layout_valid &&
+            std::memcmp(&s.cached_layout_sizes, &s.current_data.sizes, sizeof(s.cached_layout_sizes)) == 0) {
+            raw_va = s.cached_layout_raw_va;
+            va = s.cached_layout_normalized_va;
+        } else {
+            g_glstate.fpe_state.fpe_draw.compile_vertexattrib(raw_va);
+            va = raw_va.normalize();
+            // Need to generate_compressed_index first (shadergen will use that)
+            const auto attributeSizes = build_attribute_size_table(g_glstate.fpe_state.fpe_draw.current_data.sizes);
+            va.generate_compressed_index(attributeSizes.data());
+            s.cached_layout_sizes = s.current_data.sizes;
+            s.cached_layout_raw_va = raw_va;
+            s.cached_layout_normalized_va = va;
+            s.cached_layout_valid = true;
+        }
 
         auto key = g_glstate.program_hash(false);
 
