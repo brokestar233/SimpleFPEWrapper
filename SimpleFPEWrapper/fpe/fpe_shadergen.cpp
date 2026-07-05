@@ -1110,7 +1110,11 @@ constexpr std::string_view mg_shader_header_mobilegl = "#version 460 core\n"
 constexpr std::string_view mg_vs_header = "// ** Vertex Shader **\n";
 constexpr std::string_view mg_fs_header = "// ** Fragment Shader **\n";
 constexpr std::string_view mg_fog_linear_func = "float fog_linear(float distance, float start, float end) {\n"
-                                                "    return clamp((end - distance) / (end - start), 0., 1.);\n"
+                                                "    float range = end - start;\n"
+                                                "    if (abs(range) < 0.000001) {\n"
+                                                "        return distance <= end ? 1.0 : 0.0;\n"
+                                                "    }\n"
+                                                "    return clamp((end - distance) / range, 0.0, 1.0);\n"
                                                 "}\n";
 constexpr std::string_view mg_fog_exp_func = "float fog_exp(float distance, float density) {\n"
                                              "    return clamp(exp(-density * distance), 0., 1.);\n"
@@ -1119,16 +1123,21 @@ constexpr std::string_view mg_fog_exp2_func = "float fog_exp2(float distance, fl
                                               "    float scaled = density * distance;\n"
                                               "    return clamp(exp(-scaled * scaled), 0., 1.);\n"
                                               "}\n";
+constexpr std::string_view mg_fog_sanitize_func = "float sanitize_fog_factor(float fogFactor) {\n"
+                                                  "    if (!(fogFactor >= 0.0 && fogFactor <= 1.0)) {\n"
+                                                  "        return 1.0;\n"
+                                                  "    }\n"
+                                                  "    return fogFactor;\n"
+                                                  "}\n";
 constexpr std::string_view mg_fog_apply_fog_func = "vec3 apply_fog(vec3 objColor, vec3 fogColor, float fogFactor) {\n"
-                                                   "    return mix(fogColor, objColor, fogFactor);\n"
+                                                   "    float clampedFogFactor = sanitize_fog_factor(fogFactor);\n"
+                                                   "    return objColor * clampedFogFactor + fogColor * (1.0 - clampedFogFactor);\n"
                                                    "}\n";
-constexpr std::string_view mg_fog_struct = "struct fog_param_t {\n"
-                                           "    vec4  color;\n"
-                                           "    float density;\n"
-                                           "    float start;\n"
-                                           "    float end;\n"
-                                           "};\n";
-constexpr std::string_view mg_fog_uniform = "uniform fog_param_t fogParam;\n";
+constexpr std::string_view mg_fog_uniform = "uniform vec4 FogColor;\n"
+                                            "uniform float FogDensity;\n"
+                                            "uniform float FogStart;\n"
+                                            "uniform float FogEnd;\n";
+constexpr std::string_view mg_light_model_ambient_uniform = "uniform vec4 LightModelAmbient;\n";
 
 constexpr std::string_view mg_alpharef_uniform = "uniform float alpharef;\n";
 
@@ -1284,7 +1293,16 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
             auto& vp = vpa.attributes[i];
             const GLenum attributeUsage = enabled ? vp.usage : idx2vp(i);
             const GLint componentCount = enabled ? vp.size : (constantSize > 0 ? constantSize : 4);
-            const int texid = attributeUsage - GL_TEXTURE_COORD_ARRAY;
+            const int texid = (i >= 7 && i < 7 + MAX_TEX) ? (i - 7) : -1;
+
+            if (!enabled) {
+                if (attributeUsage == GL_NORMAL_ARRAY && !state.fpe_bools.lighting_enable) {
+                    continue;
+                }
+                if (0 <= texid && texid < MAX_TEX && !state.fpe_bools.texture_2d_enable[texid]) {
+                    continue;
+                }
+            }
 
             if (!enabled && attributeUsage == GL_COLOR_ARRAY) {
                 scratch.has_constant_color = true;
@@ -1311,8 +1329,10 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
 
             std::string out_name = enabled ? vp2out_name(vp.usage, i) : vp2out_name(attributeUsage, i);
             std::string linkageType = type;
+            int varyingComponentCount = enabled ? vp.size : 4;
             if (attributeUsage == GL_COLOR_ARRAY) {
                 linkageType = "vec4";
+                varyingComponentCount = 4;
             }
             std::string linkage;
 
@@ -1342,6 +1362,17 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
                     scratch.vs_body += std::format("{} = {};\n", out_name, in_name);
                     break;
                 }
+            } else if (0 <= texid && texid < MAX_TEX && state.fpe_bools.texture_2d_enable[texid] && componentCount == 2) {
+                if (enabled) {
+                    scratch.vs_body +=
+                        std::format("{} = (TextureMat{} * vec4({}, 0.0, 1.0)).xy;\n", out_name, texid, in_name);
+                } else {
+                    scratch.vs_body += std::format("{} = vec4((TextureMat{} * vec4({}.xy, 0.0, 1.0)).xy, {}.zw);\n",
+                                                   out_name,
+                                                   texid,
+                                                   in_name,
+                                                   in_name);
+                }
             } else {
                 scratch.vs_body += out_name;
                 scratch.vs_body += " = ";
@@ -1354,20 +1385,31 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
             if (0 <= texid && texid < MAX_TEX) {
                 // LOG_D("has_texcoord[%d] = true", texid)
                 scratch.has_texcoord[texid] = true;
+                scratch.texcoord_components[texid] = componentCount;
+                scratch.texcoord_varying_components[texid] = varyingComponentCount;
             }
         }
     }
 
     if (state.fpe_bools.fog_enable) {
+        vs += "out float vFogDistance;\n";
+    }
+    if (state.fpe_bools.lighting_enable) {
         vs += "out vec3 vViewPosition;\n";
+        vs += "out vec3 vViewNormal;\n";
     }
 }
 
 void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
     // Transformation matrix
     vs += "uniform mat4 ModelViewProjMat;\n";
-    if (state.fpe_bools.fog_enable) {
+    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable) {
         vs += "uniform mat4 ModelViewMat;\n";
+    }
+    for (int i = 0; i < MAX_TEX; ++i) {
+        if (scratch.has_texcoord[i] && state.fpe_bools.texture_2d_enable[i]) {
+            vs += std::format("uniform mat4 TextureMat{};\n", i);
+        }
     }
 }
 
@@ -1388,33 +1430,49 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     }
 
     vs += "void main() {\n";
-    //            "   gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n";
-    vs += "    gl_Position = ModelViewProjMat * ";
+    vs += "    vec4 fpePosition = ";
     vs += positionExpr;
     vs += ";\n";
-    if (state.fpe_bools.fog_enable) {
-        vs += "    vec4 viewPosition = ModelViewMat * vec4(Position, 1.0);\n"
-              "    vViewPosition = viewPosition.xyz;\n";
+    vs += "    gl_Position = ModelViewProjMat * fpePosition;\n";
+    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable) {
+        vs += "    vec4 viewPosition = ModelViewMat * fpePosition;\n";
+        if (state.fpe_bools.fog_enable) {
+            vs += "    vFogDistance = abs(viewPosition.z);\n";
+        }
+        if (state.fpe_bools.lighting_enable) {
+            vs += "    vViewPosition = viewPosition.xyz;\n"
+                  "    vViewNormal = normalize(mat3(ModelViewMat) * vec3(Normal));\n";
+        }
     }
     vs += scratch.vs_body;
     vs += "}\n";
 }
 
 void add_fs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, std::string& fs) {
-    // Hardcode a sampler here...
-    // TODO: Fix this on multitexture
-    //    if (scratch.has_texcoord)
-    //        fs += std::format(
-    //                "uniform sampler2D Sampler{};\n", 0);
     for (int i = 0; i < MAX_TEX; ++i) {
         if (scratch.has_texcoord[i] && state.fpe_bools.texture_2d_enable[i]) {
             fs += std::format("uniform sampler2D Sampler{};\n", i);
+            fs += std::format("uniform vec4 TextureEnvColor{};\n", i);
+            if (state.texture_env[i].mode == GL_COMBINE) {
+                fs += std::format("uniform vec2 TextureEnvScale{};\n", i);
+            }
         }
     }
 
     if (state.fpe_bools.fog_enable) {
-        fs += mg_fog_struct;
         fs += mg_fog_uniform;
+    }
+
+    if (state.fpe_bools.lighting_enable) {
+        fs += mg_light_model_ambient_uniform;
+        for (int i = 0; i < MAX_LIGHTS; ++i) {
+            if (!state.fpe_bools.light_enable[i]) {
+                continue;
+            }
+            fs += std::format("uniform vec4 LightAmbient{};\n", i);
+            fs += std::format("uniform vec4 LightDiffuse{};\n", i);
+            fs += std::format("uniform vec4 LightPosition{};\n", i);
+        }
     }
 
     if (state.fpe_bools.alpha_test_enable) {
@@ -1431,14 +1489,124 @@ void add_fs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
     fs += scratch.last_stage_linkage;
     fs += "\n";
     if (state.fpe_bools.fog_enable) {
+        fs += "in float vFogDistance;\n";
+    }
+    if (state.fpe_bools.lighting_enable) {
         fs += "in vec3 vViewPosition;\n";
+        fs += "in vec3 vViewNormal;\n";
     }
     fs += "out vec4 FragColor;\n";
+}
+
+std::string texcoord_expr(const scratch_t& scratch, int unit) {
+    switch (scratch.texcoord_varying_components[unit]) {
+    case 1:
+        return std::format("vec2(texCoord{}, 0.0)", unit);
+    case 2:
+        return std::format("texCoord{}", unit);
+    default:
+        return std::format("texCoord{}.xy", unit);
+    }
+}
+
+std::string texenv_source_expr(GLenum source, int unit) {
+    switch (source) {
+    case GL_TEXTURE:
+        return std::format("texcolor{}", unit);
+    case GL_CONSTANT:
+        return std::format("TextureEnvColor{}", unit);
+    case GL_PRIMARY_COLOR:
+        return "primaryColor";
+    case GL_PREVIOUS:
+        return "previousColor";
+    default:
+        if (GL_TEXTURE0 <= source && source < GL_TEXTURE0 + MAX_TEX) {
+            return std::format("texcolor{}", source - GL_TEXTURE0);
+        }
+        return "previousColor";
+    }
+}
+
+std::string texenv_rgb_operand_expr(GLenum operand, const std::string& sourceExpr) {
+    switch (operand) {
+    case GL_SRC_COLOR:
+        return std::format("({}).rgb", sourceExpr);
+    case GL_ONE_MINUS_SRC_COLOR:
+        return std::format("(vec3(1.0) - ({}).rgb)", sourceExpr);
+    case GL_SRC_ALPHA:
+        return std::format("vec3(({}).a)", sourceExpr);
+    case GL_ONE_MINUS_SRC_ALPHA:
+        return std::format("vec3(1.0 - ({}).a)", sourceExpr);
+    default:
+        return std::format("({}).rgb", sourceExpr);
+    }
+}
+
+std::string texenv_alpha_operand_expr(GLenum operand, const std::string& sourceExpr) {
+    switch (operand) {
+    case GL_ONE_MINUS_SRC_ALPHA:
+        return std::format("(1.0 - ({}).a)", sourceExpr);
+    case GL_SRC_ALPHA:
+    default:
+        return std::format("({}).a", sourceExpr);
+    }
+}
+
+std::string texenv_rgb_combine_expr(const texture_env_state_t& env, int unit) {
+    const auto src0 = texenv_source_expr(env.source_rgb[0], unit);
+    const auto src1 = texenv_source_expr(env.source_rgb[1], unit);
+    const auto src2 = texenv_source_expr(env.source_rgb[2], unit);
+    const auto arg0 = texenv_rgb_operand_expr(env.operand_rgb[0], src0);
+    const auto arg1 = texenv_rgb_operand_expr(env.operand_rgb[1], src1);
+    const auto arg2 = texenv_rgb_operand_expr(env.operand_rgb[2], src2);
+    switch (env.combine_rgb) {
+    case GL_REPLACE:
+        return arg0;
+    case GL_ADD:
+        return std::format("({} + {})", arg0, arg1);
+    case GL_ADD_SIGNED:
+        return std::format("({} + {} - vec3(0.5))", arg0, arg1);
+    case GL_INTERPOLATE:
+        return std::format("({0} * {2} + {1} * (vec3(1.0) - {2}))", arg0, arg1, arg2);
+    case GL_SUBTRACT:
+        return std::format("({} - {})", arg0, arg1);
+    case GL_DOT3_RGB:
+    case GL_DOT3_RGBA:
+        return std::format("vec3(clamp(dot(2.0 * {0} - 1.0, 2.0 * {1} - 1.0), 0.0, 1.0))", arg0, arg1);
+    case GL_MODULATE:
+    default:
+        return std::format("({} * {})", arg0, arg1);
+    }
+}
+
+std::string texenv_alpha_combine_expr(const texture_env_state_t& env, int unit) {
+    const auto src0 = texenv_source_expr(env.source_alpha[0], unit);
+    const auto src1 = texenv_source_expr(env.source_alpha[1], unit);
+    const auto src2 = texenv_source_expr(env.source_alpha[2], unit);
+    const auto arg0 = texenv_alpha_operand_expr(env.operand_alpha[0], src0);
+    const auto arg1 = texenv_alpha_operand_expr(env.operand_alpha[1], src1);
+    const auto arg2 = texenv_alpha_operand_expr(env.operand_alpha[2], src2);
+    switch (env.combine_alpha) {
+    case GL_REPLACE:
+        return arg0;
+    case GL_ADD:
+        return std::format("({} + {})", arg0, arg1);
+    case GL_ADD_SIGNED:
+        return std::format("({} + {} - 0.5)", arg0, arg1);
+    case GL_INTERPOLATE:
+        return std::format("({0} * {2} + {1} * (1.0 - {2}))", arg0, arg1, arg2);
+    case GL_SUBTRACT:
+        return std::format("({} - {})", arg0, arg1);
+    case GL_MODULATE:
+    default:
+        return std::format("({} * {})", arg0, arg1);
+    }
 }
 
 void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::string& fs) {
     // Fog function
     if (state.fpe_bools.fog_enable) {
+        fs += mg_fog_sanitize_func;
         fs += mg_fog_apply_fog_func;
         switch (state.fog_mode) {
         case GL_LINEAR:
@@ -1463,29 +1631,84 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     else
         fs += "    vec4 color = vec4(1., 1., 1., 1.);\n";
 
-    //    if (scratch.has_texcoord) {
-    //        fs += std::format(
-    //                "    vec4 texcolor{0} = texture(Sampler{0}, texCoord{0});\n"
-    //                "    color *= texcolor{0};\n", 0);
-    //    }
+    if (state.fpe_bools.lighting_enable) {
+        fs += "    float normalLength = length(vViewNormal);\n"
+              "    vec3 lightingNormal = normalLength > 0.0 ? (vViewNormal / normalLength) : vec3(0.0, 0.0, 1.0);\n"
+              "    vec3 lightingColor = LightModelAmbient.rgb;\n";
+        for (int i = 0; i < MAX_LIGHTS; ++i) {
+            if (!state.fpe_bools.light_enable[i]) {
+                continue;
+            }
+            fs += std::format("    vec3 lightDir{0} = vec3(0.0, 0.0, 1.0);\n"
+                              "    if (abs(LightPosition{0}.w) < 0.000001) {{\n"
+                              "        lightDir{0} = normalize(LightPosition{0}.xyz);\n"
+                              "    }} else {{\n"
+                              "        vec3 lightPos{0} = LightPosition{0}.xyz / LightPosition{0}.w;\n"
+                              "        lightDir{0} = normalize(lightPos{0} - vViewPosition);\n"
+                              "    }}\n"
+                              "    float diffuseFactor{0} = max(dot(lightingNormal, lightDir{0}), 0.0);\n"
+                              "    lightingColor += LightAmbient{0}.rgb + LightDiffuse{0}.rgb * diffuseFactor{0};\n",
+                              i);
+        }
+        fs += "    color.rgb *= clamp(lightingColor, 0.0, 1.0);\n";
+    }
+
+    fs += "    vec4 primaryColor = color;\n";
 
     for (int i = 0; i < MAX_TEX; ++i) {
         if (!scratch.has_texcoord[i] || !state.fpe_bools.texture_2d_enable[i]) {
             continue;
         }
-        if (state.fpe_bools.alpha_test_enable) {
-            fs += std::format("\n"
-                              "    // Texturing #{0}\n"
-                              "    vec4 texcolor{0} = texture(Sampler{0}, texCoord{0});\n"
-                              "    color *= texcolor{0};\n",
-                              i);
-        } else {
-            fs += std::format("\n"
-                              "    // Texturing #{0}\n"
-                              "    vec4 texcolor{0} = texture(Sampler{0}, texCoord{0});\n"
-                              "    color *= texcolor{0};\n",
-                              i);
+        fs += std::format("    vec4 texcolor{0} = texture(Sampler{0}, {1});\n", i, texcoord_expr(scratch, i));
+    }
+
+    for (int i = 0; i < MAX_TEX; ++i) {
+        if (!scratch.has_texcoord[i] || !state.fpe_bools.texture_2d_enable[i]) {
+            continue;
         }
+        const auto& env = state.texture_env[i];
+        fs += std::format("\n    // Texture env #{0}\n    {{\n        vec4 previousColor = color;\n        vec4 nextColor = color;\n",
+                          i);
+        switch (env.mode) {
+        case GL_REPLACE:
+            fs += std::format("        nextColor = texcolor{};\n", i);
+            break;
+        case GL_ADD:
+            fs += std::format("        nextColor.rgb = previousColor.rgb + texcolor{0}.rgb;\n"
+                              "        nextColor.a = previousColor.a * texcolor{0}.a;\n", i);
+            break;
+        case GL_DECAL:
+            fs += std::format("        nextColor.rgb = mix(previousColor.rgb, texcolor{0}.rgb, texcolor{0}.a);\n"
+                              "        nextColor.a = previousColor.a;\n", i);
+            break;
+        case GL_BLEND:
+            fs += std::format("        nextColor.rgb = mix(previousColor.rgb, TextureEnvColor{0}.rgb, texcolor{0}.rgb);\n"
+                              "        nextColor.a = previousColor.a * texcolor{0}.a;\n", i);
+            break;
+        case GL_COMBINE: {
+            const auto rgbExpr = texenv_rgb_combine_expr(env, i);
+            const auto alphaExpr = texenv_alpha_combine_expr(env, i);
+            fs += std::format("        nextColor.rgb = clamp(({}) * TextureEnvScale{}.x, 0.0, 1.0);\n", rgbExpr, i);
+            if (env.combine_rgb == GL_DOT3_RGBA) {
+                fs += std::format("        nextColor.a = clamp(({}) * TextureEnvScale{}.x, 0.0, 1.0).r;\n", rgbExpr, i);
+            } else {
+                fs += std::format("        nextColor.a = clamp(({}) * TextureEnvScale{}.y, 0.0, 1.0);\n", alphaExpr, i);
+            }
+            break;
+        }
+        case GL_MODULATE:
+        default:
+            if (i == 0) {
+                fs += std::format("        nextColor = previousColor * texcolor{};\n", i);
+            } else if (state.fpe_bools.lighting_enable) {
+                fs += "        nextColor = previousColor;\n";
+            } else {
+                fs += std::format("        nextColor.rgb = previousColor.rgb * texcolor{0}.rgb;\n"
+                                  "        nextColor.a = previousColor.a;\n", i);
+            }
+            break;
+        }
+        fs += "        color = clamp(nextColor, 0.0, 1.0);\n    }\n";
     }
 
     // Alpha test
@@ -1497,19 +1720,18 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
 
     // Fog calculation
     if (state.fpe_bools.fog_enable) {
-        fs += "    float distance = length(vViewPosition);\n";
         switch (state.fog_mode) {
         case GL_LINEAR:
-            fs += "    float fogFactor = fog_linear(distance, fogParam.start, fogParam.end);\n";
+            fs += "    float fogFactor = fog_linear(vFogDistance, FogStart, FogEnd);\n";
             break;
         case GL_EXP:
-            fs += "    float fogFactor = fog_exp(distance, fogParam.density);\n";
+            fs += "    float fogFactor = fog_exp(vFogDistance, FogDensity);\n";
             break;
         case GL_EXP2:
-            fs += "    float fogFactor = fog_exp2(distance, fogParam.density);\n";
+            fs += "    float fogFactor = fog_exp2(vFogDistance, FogDensity);\n";
             break;
         }
-        fs += "    color.rgb = apply_fog(color.rgb, fogParam.color.rgb, fogFactor);\n";
+        fs += "    color.rgb = apply_fog(color.rgb, FogColor.rgb, fogFactor);\n";
         //        fs += "    color = vec4(fogFactor, fogFactor, fogFactor, 1.);\n";
     }
 

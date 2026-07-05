@@ -9,10 +9,135 @@
 #include "list.h"
 #include "pointer_utils.h"
 #include "fpe.hpp"
+#include <limits>
+#include <vector>
 
 #define DEBUG 0
 
 GLuint currentListBase = 0;
+
+namespace {
+
+bool try_get_calllists_bytes(GLsizei n, GLenum type, size_t& outBytes) {
+    outBytes = 0;
+    if (n <= 0) {
+        return true;
+    }
+
+    const int typeBytes = PointerUtils::type_to_bytes(type);
+    if (typeBytes <= 0) {
+        return false;
+    }
+
+    const size_t count = static_cast<size_t>(n);
+    const size_t stride = static_cast<size_t>(typeBytes);
+    if (count > std::numeric_limits<size_t>::max() / stride) {
+        return false;
+    }
+
+    outBytes = count * stride;
+    return true;
+}
+
+bool decode_calllist_offset(GLenum type, const uint8_t*& ptr, GLuint& offset) {
+    switch (type) {
+    case GL_BYTE: {
+        GLbyte value = 0;
+        std::memcpy(&value, ptr, sizeof(value));
+        offset = static_cast<GLuint>(value);
+        ptr += sizeof(value);
+        return true;
+    }
+    case GL_UNSIGNED_BYTE: {
+        GLubyte value = 0;
+        std::memcpy(&value, ptr, sizeof(value));
+        offset = static_cast<GLuint>(value);
+        ptr += sizeof(value);
+        return true;
+    }
+    case GL_SHORT: {
+        GLshort value = 0;
+        std::memcpy(&value, ptr, sizeof(value));
+        offset = static_cast<GLuint>(value);
+        ptr += sizeof(value);
+        return true;
+    }
+    case GL_UNSIGNED_SHORT: {
+        GLushort value = 0;
+        std::memcpy(&value, ptr, sizeof(value));
+        offset = static_cast<GLuint>(value);
+        ptr += sizeof(value);
+        return true;
+    }
+    case GL_INT: {
+        GLint value = 0;
+        std::memcpy(&value, ptr, sizeof(value));
+        offset = static_cast<GLuint>(value);
+        ptr += sizeof(value);
+        return true;
+    }
+    case GL_UNSIGNED_INT: {
+        GLuint value = 0;
+        std::memcpy(&value, ptr, sizeof(value));
+        offset = value;
+        ptr += sizeof(value);
+        return true;
+    }
+    case GL_FLOAT: {
+        GLfloat value = 0.0f;
+        std::memcpy(&value, ptr, sizeof(value));
+        offset = static_cast<GLuint>(value);
+        ptr += sizeof(value);
+        return true;
+    }
+    case GL_2_BYTES:
+        offset = (static_cast<GLuint>(ptr[0]) << 8) | ptr[1];
+        ptr += 2;
+        return true;
+    case GL_3_BYTES:
+        offset =
+            (static_cast<GLuint>(ptr[0]) << 16) | (static_cast<GLuint>(ptr[1]) << 8) | static_cast<GLuint>(ptr[2]);
+        ptr += 3;
+        return true;
+    case GL_4_BYTES:
+        offset = (static_cast<GLuint>(ptr[0]) << 24) | (static_cast<GLuint>(ptr[1]) << 16) |
+                 (static_cast<GLuint>(ptr[2]) << 8) | static_cast<GLuint>(ptr[3]);
+        ptr += 4;
+        return true;
+    default:
+        return false;
+    }
+}
+
+void execute_calllists(GLsizei n, GLenum type, const void* lists) {
+    if (n <= 0 || lists == nullptr) {
+        return;
+    }
+
+    const auto* ptr = static_cast<const uint8_t*>(lists);
+    for (GLsizei i = 0; i < n; ++i) {
+        GLuint offset = 0;
+        if (!decode_calllist_offset(type, ptr, offset)) {
+            return;
+        }
+        DisplayListManager::callList(currentListBase + offset);
+    }
+}
+
+class GLCallListsCmd final : public GLCmd {
+public:
+    GLCallListsCmd(GLsizei n, GLenum type, std::vector<uint8_t>&& data)
+        : n_(n), type_(type), data_(std::move(data)) {}
+
+    void execute() const override { execute_calllists(n_, type_, data_.data()); }
+
+private:
+    GLsizei n_;
+    GLenum type_;
+    std::vector<uint8_t> data_;
+};
+
+}
 
 GLuint glGenLists(GLsizei range) {
     // LOG()
@@ -66,68 +191,23 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
     // LOG()
     // LOG_D("glCallLists(%i, %s, %p)", n, glEnumToString(type), lists)
 
+    size_t listBytes = 0;
+    if (!try_get_calllists_bytes(n, type, listBytes)) {
+        SFPEWDebugLog("glCallLists ignored invalid args n=%d type=%s", n, glEnumToString(type));
+        return;
+    }
+
     if (DisplayListManager::shouldRecord()) {
-        displayListManager.record<glCallLists>({{2, n * PointerUtils::type_to_bytes(type)}}, n, type, lists);
+        std::vector<uint8_t> encodedLists;
+        if (listBytes > 0 && lists != nullptr) {
+            encodedLists.resize(listBytes);
+            std::memcpy(encodedLists.data(), lists, listBytes);
+        }
+        DisplayListManager::recordCustom(std::make_unique<GLCallListsCmd>(n, type, std::move(encodedLists)));
         if (DisplayListManager::isRecording()) return;
     }
     GET_PREV_PROGRAM
-    const auto* ptr = static_cast<const uint8_t*>(lists);
-    for (int i = 0; i < n; ++i) {
-        GLuint offset = 0;
-        switch (type) {
-        case GL_BYTE:
-            offset = static_cast<GLuint>(*reinterpret_cast<const GLbyte*>(ptr));
-            ptr += 1;
-            break;
-        case GL_UNSIGNED_BYTE:
-            offset = *reinterpret_cast<const GLubyte*>(ptr);
-            ptr += 1;
-            break;
-        case GL_SHORT:
-            offset = static_cast<GLuint>(*reinterpret_cast<const GLshort*>(ptr));
-            ptr += 2;
-            break;
-        case GL_UNSIGNED_SHORT:
-            offset = *reinterpret_cast<const GLushort*>(ptr);
-            ptr += 2;
-            break;
-        case GL_INT:
-            offset = static_cast<GLuint>(*reinterpret_cast<const GLint*>(ptr));
-            ptr += 4;
-            break;
-        case GL_UNSIGNED_INT:
-            offset = *reinterpret_cast<const GLuint*>(ptr);
-            ptr += 4;
-            break;
-        case GL_FLOAT:
-            offset = static_cast<GLuint>(*reinterpret_cast<const GLfloat*>(ptr));
-            ptr += 4;
-            break;
-        case GL_2_BYTES: {
-            const auto* bytes = reinterpret_cast<const GLubyte*>(ptr);
-            offset = (static_cast<GLuint>(bytes[0]) << 8) | bytes[1];
-            ptr += 2;
-            break;
-        }
-        case GL_3_BYTES: {
-            const auto* bytes = reinterpret_cast<const GLubyte*>(ptr);
-            offset = (static_cast<GLuint>(bytes[0]) << 16) | (static_cast<GLuint>(bytes[1]) << 8) | bytes[2];
-            ptr += 3;
-            break;
-        }
-        case GL_4_BYTES: {
-            const auto* bytes = reinterpret_cast<const GLubyte*>(ptr);
-            offset = (static_cast<GLuint>(bytes[0]) << 24) | (static_cast<GLuint>(bytes[1]) << 16) |
-                     (static_cast<GLuint>(bytes[2]) << 8) | bytes[3];
-            ptr += 4;
-            break;
-        }
-        default:
-            // LOG_W("ERROR: Failed to handle lists and type!")
-            break;
-        }
-        DisplayListManager::callList(currentListBase + offset);
-    }
+    execute_calllists(n, type, lists);
     SET_PREV_PROGRAM
 }
 

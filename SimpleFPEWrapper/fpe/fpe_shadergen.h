@@ -18,6 +18,8 @@ struct scratch_t {
     bool has_vertex_color = false;
     bool has_constant_color = false;
     bool has_texcoord[MAX_TEX] = {false};
+    int texcoord_components[MAX_TEX] = {0};
+    int texcoord_varying_components[MAX_TEX] = {0};
     int position_size = 0;
 };
 

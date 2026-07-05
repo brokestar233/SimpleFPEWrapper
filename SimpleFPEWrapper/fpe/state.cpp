@@ -8,10 +8,12 @@
 
 #include "state.h"
 #include "fpe.hpp"
+#include "transformation.h"
 #include <glm/gtc/type_ptr.hpp>
 #include "list.h"
 #include "pointer_utils.h"
 #include "../init.h"
+#include <cstdint>
 
 #define DEBUG 0
 
@@ -20,6 +22,98 @@ namespace {
 void sfpew_list_glClientActiveTexture(GLenum texture) {
     g_glstate.fpe_state.client_active_texture = texture;
     SFPEWDebugLog("STATE client_active_texture=%s", glEnumToString(texture));
+}
+
+int active_texture_index() {
+    const GLint textureIndex = static_cast<GLint>(g_glstate.fpe_state.active_texture - GL_TEXTURE0);
+    if (0 <= textureIndex && textureIndex < MAX_TEX) {
+        return textureIndex;
+    }
+    return 0;
+}
+
+texture_env_state_t& current_texture_env_state() {
+    return g_glstate.fpe_state.texture_env[active_texture_index()];
+}
+
+texture_env_uniform_t& current_texture_env_uniform() {
+    return g_glstate.fpe_uniform.texture_env[active_texture_index()];
+}
+
+size_t texenv_param_count(GLenum pname) {
+    switch (pname) {
+    case GL_TEXTURE_ENV_COLOR:
+        return 4;
+    default:
+        return 1;
+    }
+}
+
+void apply_texenv_enum(GLenum pname, GLenum value) {
+    auto& env = current_texture_env_state();
+    switch (pname) {
+    case GL_TEXTURE_ENV_MODE:
+        env.mode = value;
+        break;
+    case GL_COMBINE_RGB:
+        env.combine_rgb = value;
+        break;
+    case GL_COMBINE_ALPHA:
+        env.combine_alpha = value;
+        break;
+    case GL_SOURCE0_RGB:
+        env.source_rgb[0] = value;
+        break;
+    case GL_SOURCE1_RGB:
+        env.source_rgb[1] = value;
+        break;
+    case GL_SOURCE2_RGB:
+        env.source_rgb[2] = value;
+        break;
+    case GL_SOURCE0_ALPHA:
+        env.source_alpha[0] = value;
+        break;
+    case GL_SOURCE1_ALPHA:
+        env.source_alpha[1] = value;
+        break;
+    case GL_SOURCE2_ALPHA:
+        env.source_alpha[2] = value;
+        break;
+    case GL_OPERAND0_RGB:
+        env.operand_rgb[0] = value;
+        break;
+    case GL_OPERAND1_RGB:
+        env.operand_rgb[1] = value;
+        break;
+    case GL_OPERAND2_RGB:
+        env.operand_rgb[2] = value;
+        break;
+    case GL_OPERAND0_ALPHA:
+        env.operand_alpha[0] = value;
+        break;
+    case GL_OPERAND1_ALPHA:
+        env.operand_alpha[1] = value;
+        break;
+    case GL_OPERAND2_ALPHA:
+        env.operand_alpha[2] = value;
+        break;
+    default:
+        break;
+    }
+}
+
+void apply_texenv_float(GLenum pname, GLfloat value) {
+    auto& env = current_texture_env_uniform();
+    switch (pname) {
+    case GL_RGB_SCALE:
+        env.rgb_scale = value;
+        break;
+    case GL_ALPHA_SCALE:
+        env.alpha_scale = value;
+        break;
+    default:
+        break;
+    }
 }
 
 }
@@ -41,6 +135,7 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
         return true;
     // TODO: implement these states
     case GL_COLOR_MATERIAL:
+        return true;
     case GL_LIGHT0:
     case GL_LIGHT1:
     case GL_LIGHT2:
@@ -48,7 +143,13 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     case GL_LIGHT4:
     case GL_LIGHT5:
     case GL_LIGHT6:
-    case GL_LIGHT7:
+    case GL_LIGHT7: {
+        const GLint lightIndex = static_cast<GLint>(cap - GL_LIGHT0);
+        if (0 <= lightIndex && lightIndex < MAX_LIGHTS) {
+            bools->light_enable[lightIndex] = enable;
+        }
+        return true;
+    }
     case GL_RESCALE_NORMAL:
         return true;
     case GL_TEXTURE_2D: {
@@ -199,6 +300,103 @@ void glClientActiveTexture(GLenum texture) {
     }
 
     sfpew_list_glClientActiveTexture(texture);
+}
+
+void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
+    LIST_RECORD(glTexEnvf, {}, target, pname, param)
+
+    if (target != GL_TEXTURE_ENV) {
+        return;
+    }
+
+    switch (pname) {
+    case GL_RGB_SCALE:
+    case GL_ALPHA_SCALE:
+        apply_texenv_float(pname, param);
+        break;
+    default:
+        apply_texenv_enum(pname, static_cast<GLenum>(param));
+        break;
+    }
+    SFPEWDebugLog("STATE texenvf unit=%d pname=%s value=%.6g",
+                  active_texture_index(),
+                  glEnumToString(pname),
+                  param);
+}
+
+void glTexEnvi(GLenum target, GLenum pname, GLint param) {
+    LIST_RECORD(glTexEnvi, {}, target, pname, param)
+
+    if (target != GL_TEXTURE_ENV) {
+        return;
+    }
+
+    switch (pname) {
+    case GL_RGB_SCALE:
+    case GL_ALPHA_SCALE:
+        apply_texenv_float(pname, static_cast<GLfloat>(param));
+        break;
+    default:
+        apply_texenv_enum(pname, static_cast<GLenum>(param));
+        break;
+    }
+    SFPEWDebugLog("STATE texenvi unit=%d pname=%s value=%s",
+                  active_texture_index(),
+                  glEnumToString(pname),
+                  glEnumToString(static_cast<GLenum>(param)));
+}
+
+void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
+    LIST_RECORD(glTexEnvfv, {{2, texenv_param_count(pname) * sizeof(GLfloat)}}, target, pname, params)
+
+    if (target != GL_TEXTURE_ENV || params == nullptr) {
+        return;
+    }
+
+    switch (pname) {
+    case GL_TEXTURE_ENV_COLOR:
+        current_texture_env_uniform().color = glm::make_vec4(params);
+        break;
+    case GL_RGB_SCALE:
+    case GL_ALPHA_SCALE:
+        apply_texenv_float(pname, params[0]);
+        break;
+    default:
+        apply_texenv_enum(pname, static_cast<GLenum>(params[0]));
+        break;
+    }
+    SFPEWDebugLog("STATE texenvfv unit=%d pname=%s",
+                  active_texture_index(),
+                  glEnumToString(pname));
+}
+
+void glTexEnviv(GLenum target, GLenum pname, const GLint* params) {
+    LIST_RECORD(glTexEnviv, {{2, texenv_param_count(pname) * sizeof(GLint)}}, target, pname, params)
+
+    if (target != GL_TEXTURE_ENV || params == nullptr) {
+        return;
+    }
+
+    switch (pname) {
+    case GL_TEXTURE_ENV_COLOR: {
+        auto& color = current_texture_env_uniform().color;
+        color[0] = static_cast<GLfloat>(params[0]) / static_cast<GLfloat>(INT32_MAX);
+        color[1] = static_cast<GLfloat>(params[1]) / static_cast<GLfloat>(INT32_MAX);
+        color[2] = static_cast<GLfloat>(params[2]) / static_cast<GLfloat>(INT32_MAX);
+        color[3] = static_cast<GLfloat>(params[3]) / static_cast<GLfloat>(INT32_MAX);
+        break;
+    }
+    case GL_RGB_SCALE:
+    case GL_ALPHA_SCALE:
+        apply_texenv_float(pname, static_cast<GLfloat>(params[0]));
+        break;
+    default:
+        apply_texenv_enum(pname, static_cast<GLenum>(params[0]));
+        break;
+    }
+    SFPEWDebugLog("STATE texenviv unit=%d pname=%s",
+                  active_texture_index(),
+                  glEnumToString(pname));
 }
 
 void glAlphaFunc(GLenum func, GLclampf ref) {
@@ -413,7 +611,9 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
     }
     case GL_POSITION: {
         auto& lightref = g_glstate.fpe_uniform.lights[light - GL_LIGHT0];
-        lightref.position = glm::make_vec4(params);
+        const glm::vec4 position = glm::make_vec4(params);
+        const auto& modelView = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+        lightref.position = modelView * position;
         break;
     }
     case GL_SPOT_DIRECTION: {
@@ -448,10 +648,12 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
     case GL_POSITION: {
         glm::vec4 vec = glm::make_vec4(params);
         SELF_CALL(glLightfv, light, pname, glm::value_ptr(vec));
+        break;
     }
     case GL_SPOT_DIRECTION: {
         glm::vec3 vec = glm::make_vec3(params);
         SELF_CALL(glLightfv, light, pname, glm::value_ptr(vec));
+        break;
     }
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)

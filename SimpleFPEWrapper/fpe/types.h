@@ -25,7 +25,18 @@ GLsizei type_size(GLenum type);
 struct transformation_t {
     glm::mat4 matrices[4];
     std::vector<glm::mat4> matrices_stack[4];
+    glm::mat4 texture_matrices[MAX_TEX];
+    std::vector<glm::mat4> texture_matrices_stack[MAX_TEX];
     GLenum matrix_mode = GL_MODELVIEW;
+
+    transformation_t() {
+        for (auto& matrix : matrices) {
+            matrix = glm::mat4(1.0f);
+        }
+        for (auto& matrix : texture_matrices) {
+            matrix = glm::mat4(1.0f);
+        }
+    }
 };
 
 struct vertexattribute_t {
@@ -67,6 +78,22 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     bool alpha_test_enable = false; // GL_ALPHA_TEST
     bool texture_2d_enable[MAX_TEX] = {false};
     bool light_enable[MAX_LIGHTS] = {false};
+};
+
+struct texture_env_state_t {
+    GLenum mode = GL_MODULATE;
+    GLenum combine_rgb = GL_MODULATE;
+    GLenum combine_alpha = GL_MODULATE;
+    GLenum source_rgb[3] = {GL_TEXTURE, GL_PREVIOUS, GL_CONSTANT};
+    GLenum source_alpha[3] = {GL_TEXTURE, GL_PREVIOUS, GL_CONSTANT};
+    GLenum operand_rgb[3] = {GL_SRC_COLOR, GL_SRC_COLOR, GL_SRC_ALPHA};
+    GLenum operand_alpha[3] = {GL_SRC_ALPHA, GL_SRC_ALPHA, GL_SRC_ALPHA};
+};
+
+struct texture_env_uniform_t {
+    glm::vec4 color = {0.f, 0.f, 0.f, 0.f};
+    GLfloat rgb_scale = 1.f;
+    GLfloat alpha_scale = 1.f;
 };
 
 struct light_t {
@@ -187,6 +214,7 @@ struct fixed_function_state_t {
     struct vertex_pointer_array_t vertexpointer_array;
     struct vertex_pointer_array_t normalized_vpa;
     struct fixed_function_bool_t fpe_bools;
+    texture_env_state_t texture_env[MAX_TEX];
     struct fixed_function_draw_state_t fpe_draw;
 };
 
@@ -206,6 +234,8 @@ struct fixed_function_uniform_t {
 
     // glMatrix*
     struct transformation_t transformation;
+
+    texture_env_uniform_t texture_env[MAX_TEX];
 
     // glLightf/i/fv/iv
     light_t lights[MAX_LIGHTS];
@@ -235,8 +265,8 @@ struct glstate_t {
     //    GLuint fpe_frag_shader = 0;
     //    GLuint fpe_program = 0;
 
-    // enabled_vertexpointers - program
-    // TODO: using vp as key is bad! Try to hash the whole fpe_state
+    // enabled vertex-pointer layout + fixed-function state -> generated shader program
+    // TODO: keep program_hash() aligned with every state that changes shader generation.
     unordered_map<uint64_t, program_t> fpe_programs;
     unordered_map<uint64_t, GLuint> fpe_vaos;
 
