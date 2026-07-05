@@ -15,12 +15,15 @@
 #include "../init.h"
 
 #define GET_PREV_PROGRAM                                                                                               \
-    GLint m_prev_program;                                                                                              \
-    g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &m_prev_program);
+    const GLint m_prev_program = g_glstate.backend_current_program;
 #define SET_PREV_PROGRAM                                                                                               \
     if (m_prev_program) g_glFuncs.glUseProgram(m_prev_program);
 
 #define g_glstate glstate_t::get_instance()
+
+inline void mark_uniform_state_dirty() {
+    ++g_glstate.uniform_state_version;
+}
 
 extern bool fpe_inited;
 

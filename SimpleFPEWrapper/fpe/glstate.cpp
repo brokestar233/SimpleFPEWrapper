@@ -52,6 +52,11 @@ void glstate_t::send_uniforms(const program_t& program) {
     // LOG()
 
     const int programId = program.id();
+    if (last_uniform_program_id == programId &&
+        last_uniform_state_version == uniform_state_version) {
+        return;
+    }
+
     const auto& uniforms = program.uniform_locations();
     const auto& mv = fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
     const auto& proj = fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)];
@@ -62,6 +67,7 @@ void glstate_t::send_uniforms(const program_t& program) {
 
     // TODO: detect change and only set dirty bits here
     g_glFuncs.glBindVertexArray(fpe_state.fpe_vao);
+    backend_vertex_array_binding = static_cast<GLint>(fpe_state.fpe_vao);
 
     auto drainUniformStage = [&](const char* uniformName) {
         if (!SFPEWIsDebugLoggingEnabled()) {
@@ -194,6 +200,9 @@ void glstate_t::send_uniforms(const program_t& program) {
         g_glFuncs.glUniform4fv(uniforms.CurrentColor, 1, glm::value_ptr(fpe_state.fpe_draw.current_data.color));
         drainUniformStage("CurrentColor");
     }
+
+    last_uniform_program_id = programId;
+    last_uniform_state_version = uniform_state_version;
 }
 
 uint64_t glstate_t::program_hash(bool reset) {

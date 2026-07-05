@@ -370,10 +370,8 @@ void sfpew_list_glDrawArrays(GLenum mode, GLint first, GLsizei count) {
         return;
     }
     GET_PREV_PROGRAM
-    GLint prev_vao = 0;
-    GLint prev_vbo = 0;
-    g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
-    g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_vbo);
+    const GLint prev_vao = g_glstate.backend_vertex_array_binding;
+    const GLint prev_vbo = g_glstate.backend_array_buffer_binding;
     int do_draw_element = commit_fpe_state_on_draw(&mode, &first, &count);
     SFPEWDebugLog("DRAWARRAYS prepared mode=%s first=%d count=%d draw_elements=%d prev_vao=%d prev_vbo=%d prev_program=%d",
                   glEnumToString(mode),
@@ -392,8 +390,11 @@ void sfpew_list_glDrawArrays(GLenum mode, GLint first, GLsizei count) {
 
     SFPEWDrainBackendErrors("glDrawArrays.draw");
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, prev_vbo);
+    g_glstate.backend_array_buffer_binding = prev_vbo;
     g_glFuncs.glBindVertexArray(prev_vao);
+    g_glstate.backend_vertex_array_binding = prev_vao;
     SET_PREV_PROGRAM
+    g_glstate.backend_current_program = m_prev_program;
     SFPEWDrainBackendErrors("glDrawArrays.restore");
 }
 

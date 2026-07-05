@@ -210,6 +210,12 @@ int init_fpe() {
     g_glstate.last_array_binding_hash_valid = false;
     g_glstate.last_array_binding_vao = 0;
     g_glstate.last_array_binding_hash = 0;
+    g_glstate.uniform_state_version = 1;
+    g_glstate.last_uniform_state_version = 0;
+    g_glstate.last_uniform_program_id = -1;
+    g_glstate.backend_current_program = 0;
+    g_glstate.backend_vertex_array_binding = 0;
+    g_glstate.backend_array_buffer_binding = 0;
 
     g_glFuncs.glGenVertexArrays(1, &g_glstate.fpe_state.fpe_vao);
 
@@ -222,8 +228,10 @@ int init_fpe() {
     // LOG_D("fpe_ibo: %d", g_glstate.fpe_state.fpe_ibo)
 
     g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
+    g_glstate.backend_vertex_array_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vao);
 
     g_glFuncs.glBindVertexArray(0);
+    g_glstate.backend_vertex_array_binding = 0;
     SFPEWDebugLog("FPE init vao=%u vbo=%u ibo=%u", g_glstate.fpe_state.fpe_vao, g_glstate.fpe_state.fpe_vbo,
                   g_glstate.fpe_state.fpe_ibo);
 
@@ -262,6 +270,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     //    g_glFuncs.glGenVertexArrays(1, &vpa.fpe_vao);
     // LOG_D("fpe_vao: %d", g_glstate.fpe_state.fpe_vao)
     g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
+    g_glstate.backend_vertex_array_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vao);
     SFPEWDrainBackendErrors("fpe.bind_vertex_array");
 
     auto key = g_glstate.program_hash();
@@ -270,6 +279,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     int prog_id = prog.get_program();
     // if (prog_id < 0) LOG_D("Error: FPE shader link failed!")
     g_glFuncs.glUseProgram(prog_id);
+    g_glstate.backend_current_program = prog_id;
     SFPEWDrainBackendErrors("fpe.use_program");
 
     SFPEWDebugLog("FPE commit mode=%s first=%d count=%d key=0x%llx program=%d vao=%u stride=%d start=%p enabled=0x%x client_mem=%d",
@@ -307,6 +317,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
 
     if (usesClientMemory) {
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
+        g_glstate.backend_array_buffer_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vbo);
         SFPEWDrainBackendErrors("fpe.bind_array_buffer");
     }
 

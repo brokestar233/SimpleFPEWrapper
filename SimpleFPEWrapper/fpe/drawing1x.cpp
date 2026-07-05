@@ -46,10 +46,8 @@ void glEnd() {
     }
 
     GET_PREV_PROGRAM
-    GLint prev_vao = 0;
-    GLint prev_vbo = 0;
-    g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
-    g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_vbo);
+    const GLint prev_vao = g_glstate.backend_vertex_array_binding;
+    const GLint prev_vbo = g_glstate.backend_array_buffer_binding;
 
     // actual assembly work, and draw!
     {
@@ -69,13 +67,16 @@ void glEnd() {
         int prog_id = prog.get_program();
         if (prog_id < 0) {}
         g_glFuncs.glUseProgram(prog_id);
+        g_glstate.backend_current_program = prog_id;
         SFPEWDrainBackendErrors("immediate.use_program");
 
         // VAO, VB
         g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
+        g_glstate.backend_vertex_array_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vao);
         SFPEWDrainBackendErrors("immediate.bind_vertex_array");
 
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
+        g_glstate.backend_array_buffer_binding = static_cast<GLint>(g_glstate.fpe_state.fpe_vbo);
         SFPEWDrainBackendErrors("immediate.bind_array_buffer");
 
         const auto& vbbuf = vb;
@@ -167,8 +168,11 @@ void glEnd() {
 
     SFPEWDrainBackendErrors("immediate.draw");
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, prev_vbo);
+    g_glstate.backend_array_buffer_binding = prev_vbo;
     g_glFuncs.glBindVertexArray(prev_vao);
+    g_glstate.backend_vertex_array_binding = prev_vao;
     SET_PREV_PROGRAM
+    g_glstate.backend_current_program = m_prev_program;
 
     // resetting draw state
     s.reset();

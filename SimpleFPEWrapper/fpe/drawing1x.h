@@ -36,6 +36,9 @@ void mglNormal(std::array<Type, N> normal) {
         glm::value_ptr(cur)[i] = (GLfloat)normal[i];
     }
     state.current_data.sizes.normal_size = N;
+    if (state.primitive == GL_NONE) {
+        mark_uniform_state_dirty();
+    }
 }
 
 template <typename Type, GLint N>
@@ -47,6 +50,9 @@ void mglTexCoord(std::array<Type, N> uv, GLint texid) {
         glm::value_ptr(cur)[i] = (GLfloat)uv[i];
     }
     state.current_data.sizes.texcoord_size[texid] = N;
+    if (state.primitive == GL_NONE) {
+        mark_uniform_state_dirty();
+    }
 }
 
 template <typename Type, GLint N>
@@ -58,6 +64,9 @@ void mglColor(std::array<Type, N> color) {
         glm::value_ptr(cur)[i] = mglNormalizeColorComponent(color[i]);
     }
     state.current_data.sizes.color_size = N;
+    if (state.primitive == GL_NONE) {
+        mark_uniform_state_dirty();
+    }
 }
 
 template <typename Type, GLint N>

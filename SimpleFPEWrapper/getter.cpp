@@ -434,6 +434,20 @@ void glGetIntegerv(GLenum pname, GLint* params) {
         throw std::invalid_argument("params pointer cannot be null");
     }
 
+    switch (pname) {
+    case GL_CURRENT_PROGRAM:
+        *params = g_glstate.backend_current_program;
+        return;
+    case GL_VERTEX_ARRAY_BINDING:
+        *params = g_glstate.backend_vertex_array_binding;
+        return;
+    case GL_ARRAY_BUFFER_BINDING:
+        *params = g_glstate.backend_array_buffer_binding;
+        return;
+    default:
+        break;
+    }
+
     if (!g_sfpewCompatMode) {
         g_glFuncs.glGetIntegerv(pname, params);
         return;

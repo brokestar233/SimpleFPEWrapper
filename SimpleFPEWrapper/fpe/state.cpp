@@ -310,6 +310,27 @@ void glFrontFace(GLenum mode) {
     SFPEWDrainBackendErrors("state.front_face");
 }
 
+void glUseProgram(GLuint program) {
+    g_glstate.backend_current_program = static_cast<GLint>(program);
+    g_glFuncs.glUseProgram(program);
+}
+
+void glBindVertexArray(GLuint array) {
+    g_glstate.backend_vertex_array_binding = static_cast<GLint>(array);
+    g_glFuncs.glBindVertexArray(array);
+}
+
+void glBindBuffer(GLenum target, GLuint buffer) {
+    if (target == GL_ARRAY_BUFFER) {
+        g_glstate.backend_array_buffer_binding = static_cast<GLint>(buffer);
+    }
+    g_glFuncs.glBindBuffer(target, buffer);
+}
+
+void glBindBufferARB(GLenum target, GLuint buffer) {
+    glBindBuffer(target, buffer);
+}
+
 void glActiveTexture(GLenum texture) {
     LIST_RECORD(glActiveTexture, {}, texture)
     SFPEWDebugLog("STATE active_texture=%s", glEnumToString(texture));
@@ -453,6 +474,7 @@ void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
         apply_texenv_enum(pname, static_cast<GLenum>(param));
         break;
     }
+    mark_uniform_state_dirty();
     SFPEWDebugLog("STATE texenvf unit=%d pname=%s value=%.6g",
                   active_texture_index(),
                   glEnumToString(pname),
@@ -475,6 +497,7 @@ void glTexEnvi(GLenum target, GLenum pname, GLint param) {
         apply_texenv_enum(pname, static_cast<GLenum>(param));
         break;
     }
+    mark_uniform_state_dirty();
     SFPEWDebugLog("STATE texenvi unit=%d pname=%s value=%s",
                   active_texture_index(),
                   glEnumToString(pname),
@@ -500,6 +523,7 @@ void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
         apply_texenv_enum(pname, static_cast<GLenum>(params[0]));
         break;
     }
+    mark_uniform_state_dirty();
     SFPEWDebugLog("STATE texenvfv unit=%d pname=%s",
                   active_texture_index(),
                   glEnumToString(pname));
@@ -529,6 +553,7 @@ void glTexEnviv(GLenum target, GLenum pname, const GLint* params) {
         apply_texenv_enum(pname, static_cast<GLenum>(params[0]));
         break;
     }
+    mark_uniform_state_dirty();
     SFPEWDebugLog("STATE texenviv unit=%d pname=%s",
                   active_texture_index(),
                   glEnumToString(pname));
@@ -543,6 +568,7 @@ void glAlphaFunc(GLenum func, GLclampf ref) {
 
     g_glstate.fpe_state.alpha_func = func;
     g_glstate.fpe_uniform.alpha_ref = ref;
+    mark_uniform_state_dirty();
     if (g_glFuncs.glAlphaFunc) {
         g_glFuncs.glAlphaFunc(func, ref);
         SFPEWDrainBackendErrors("state.alpha_func");
@@ -558,12 +584,15 @@ void glFogf(GLenum pname, GLfloat param) {
     switch (pname) {
     case GL_FOG_DENSITY:
         g_glstate.fpe_uniform.fog_density = param;
+        mark_uniform_state_dirty();
         return;
     case GL_FOG_START:
         g_glstate.fpe_uniform.fog_start = param;
+        mark_uniform_state_dirty();
         return;
     case GL_FOG_END:
         g_glstate.fpe_uniform.fog_end = param;
+        mark_uniform_state_dirty();
         return;
 
     // below should not be handled here
@@ -588,12 +617,15 @@ void glFogi(GLenum pname, GLint param) {
     switch (pname) {
     case GL_FOG_MODE:
         g_glstate.fpe_state.fog_mode = param;
+        mark_uniform_state_dirty();
         break;
     case GL_FOG_INDEX:
         g_glstate.fpe_state.fog_index = param;
+        mark_uniform_state_dirty();
         break;
     case GL_FOG_COORD_SRC:
         g_glstate.fpe_state.fog_coord_src = param;
+        mark_uniform_state_dirty();
         break;
 
     // below should not be handled here
@@ -628,6 +660,7 @@ void glFogfv(GLenum pname, const GLfloat* params) {
     case GL_FOG_COLOR: {
         auto& fcolor = g_glstate.fpe_uniform.fog_color;
         fcolor = glm::make_vec4(params);
+        mark_uniform_state_dirty();
         // LOG_D("[...] = [%.2f, %.2f, %.2f, %.2f]", params[0], params[1], params[2], params[3])
         // LOG_D("fcolor = [%.2f, %.2f, %.2f, %.2f]", fcolor[0], fcolor[1], fcolor[2], fcolor[3])
         break;
@@ -651,6 +684,7 @@ void glFogiv(GLenum pname, const GLint* params) {
         fcolor[1] = (GLfloat)params[1] / (GLfloat)INT32_MAX;
         fcolor[2] = (GLfloat)params[2] / (GLfloat)INT32_MAX;
         fcolor[3] = (GLfloat)params[3] / (GLfloat)INT32_MAX;
+        mark_uniform_state_dirty();
         // LOG_D("[...] = [%d, %d, %d, %d]", params[0], params[1], params[2], params[3])
         break;
     }
@@ -690,18 +724,23 @@ void glLightf(GLenum light, GLenum pname, GLfloat param) {
     switch (pname) {
     case GL_SPOT_EXPONENT:
         lightref.spot_exp = param;
+        mark_uniform_state_dirty();
         break;
     case GL_SPOT_CUTOFF:
         lightref.spot_cutoff = param;
+        mark_uniform_state_dirty();
         break;
     case GL_CONSTANT_ATTENUATION:
         lightref.constant_attenuation = param;
+        mark_uniform_state_dirty();
         break;
     case GL_LINEAR_ATTENUATION:
         lightref.linear_attenuation = param;
+        mark_uniform_state_dirty();
         break;
     case GL_QUADRATIC_ATTENUATION:
         lightref.quadratic_attenuation = param;
+        mark_uniform_state_dirty();
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
@@ -736,16 +775,19 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
     case GL_AMBIENT: {
         auto& lightref = g_glstate.fpe_uniform.lights[light - GL_LIGHT0];
         lightref.ambient = glm::make_vec4(params);
+        mark_uniform_state_dirty();
         break;
     }
     case GL_DIFFUSE: {
         auto& lightref = g_glstate.fpe_uniform.lights[light - GL_LIGHT0];
         lightref.diffuse = glm::make_vec4(params);
+        mark_uniform_state_dirty();
         break;
     }
     case GL_SPECULAR: {
         auto& lightref = g_glstate.fpe_uniform.lights[light - GL_LIGHT0];
         lightref.specular = glm::make_vec4(params);
+        mark_uniform_state_dirty();
         break;
     }
     case GL_POSITION: {
@@ -753,11 +795,13 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
         const glm::vec4 position = glm::make_vec4(params);
         const auto& modelView = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
         lightref.position = modelView * position;
+        mark_uniform_state_dirty();
         break;
     }
     case GL_SPOT_DIRECTION: {
         auto& lightref = g_glstate.fpe_uniform.lights[light - GL_LIGHT0];
         lightref.spot_direction = glm::make_vec3(params);
+        mark_uniform_state_dirty();
         break;
     }
     default:
@@ -848,6 +892,7 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
     switch (pname) {
     case GL_LIGHT_MODEL_AMBIENT:
         g_glstate.fpe_uniform.light_model_ambient = glm::make_vec4(params);
+        mark_uniform_state_dirty();
         break;
     case GL_LIGHT_MODEL_COLOR_CONTROL:
     case GL_LIGHT_MODEL_LOCAL_VIEWER:

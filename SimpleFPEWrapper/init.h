@@ -39,6 +39,10 @@ SFPEW_APIENTRY void glTexEnvf(GLenum target, GLenum pname, GLfloat param);
 SFPEW_APIENTRY void glTexEnvi(GLenum target, GLenum pname, GLint param);
 SFPEW_APIENTRY void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params);
 SFPEW_APIENTRY void glTexEnviv(GLenum target, GLenum pname, const GLint* params);
+SFPEW_APIENTRY void glUseProgram(GLuint program);
+SFPEW_APIENTRY void glBindVertexArray(GLuint array);
+SFPEW_APIENTRY void glBindBuffer(GLenum target, GLuint buffer);
+SFPEW_APIENTRY void glBindBufferARB(GLenum target, GLuint buffer);
 SFPEW_APIENTRY void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                                  GLint border, GLenum format, GLenum type, const void* pixels);
 SFPEW_APIENTRY void glDrawArrays(GLenum mode, GLint first, GLsizei count);

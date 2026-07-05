@@ -105,6 +105,7 @@ void glLoadIdentity() {
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
     current_matrix(transformation) = glm::mat4(1.0f);
+    mark_uniform_state_dirty();
 
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
     print_matrix(current_matrix(transformation));
@@ -129,6 +130,7 @@ void glOrthof(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
     current_matrix(transformation) *= glm::ortho(left, right, bottom, top, zNear, zFar);
+    mark_uniform_state_dirty();
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
     print_matrix(current_matrix(transformation));
 }
@@ -143,6 +145,7 @@ void glScalef(GLfloat x, GLfloat y, GLfloat z) {
 
     auto& matrix = current_matrix(transformation);
     matrix = glm::scale(matrix, glm::vec3(x, y, z));
+    mark_uniform_state_dirty();
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
     print_matrix(matrix);
 }
@@ -157,6 +160,7 @@ void glTranslatef(GLfloat x, GLfloat y, GLfloat z) {
 
     auto& matrix = current_matrix(transformation);
     matrix = glm::translate(matrix, glm::vec3(x, y, z));
+    mark_uniform_state_dirty();
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
     print_matrix(matrix);
 }
@@ -171,6 +175,7 @@ void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z) {
 
     auto& matrix = current_matrix(transformation);
     matrix = glm::rotate(matrix, (GLfloat)(angle * M_PI / 180.f), glm::vec3(x, y, z));
+    mark_uniform_state_dirty();
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
     print_matrix(matrix);
 }
@@ -221,6 +226,7 @@ void glMultMatrixf(const GLfloat* m) {
     print_matrix(mat);
 
     matrix *= mat;
+    mark_uniform_state_dirty();
     // LOG_D("=")
 
     print_matrix(matrix);
@@ -253,6 +259,7 @@ void glPopMatrix(void) {
     auto& mat = current_matrix(transformation);
     mat = stack.back();
     stack.pop_back();
+    mark_uniform_state_dirty();
 
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
     print_matrix(mat);

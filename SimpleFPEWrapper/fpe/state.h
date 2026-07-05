@@ -30,6 +30,10 @@ extern "C"
     GLAPI GLAPIENTRY void glDepthFunc(GLenum func);
     GLAPI GLAPIENTRY void glDepthMask(GLboolean flag);
     GLAPI GLAPIENTRY void glFrontFace(GLenum mode);
+    GLAPI GLAPIENTRY void glUseProgram(GLuint program);
+    GLAPI GLAPIENTRY void glBindVertexArray(GLuint array);
+    GLAPI GLAPIENTRY void glBindBuffer(GLenum target, GLuint buffer);
+    GLAPI GLAPIENTRY void glBindBufferARB(GLenum target, GLuint buffer);
     GLAPI GLAPIENTRY void glActiveTexture(GLenum texture);
     GLAPI GLAPIENTRY void glClientActiveTexture(GLenum texture);
     GLAPI void GLAPIENTRY glPushAttrib(GLbitfield mask);
