@@ -14,7 +14,6 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_map>
 #include <vector>
-#include <sstream>
 #include <memory>
 #include "fpe_shadergen.h"
 #include "vertexpointer_utils.h"
@@ -177,7 +176,7 @@ struct fixed_function_draw_state_t {
 
     fixed_function_draw_data_t current_data;
 
-    std::stringstream vb;
+    std::vector<std::uint8_t> vb;
 
     size_t vertex_count = 0;
 
@@ -243,16 +242,49 @@ struct fixed_function_uniform_t {
     light_t lights[MAX_LIGHTS];
 };
 
+struct program_uniform_locations_t {
+    GLint ModelViewMat = -1;
+    GLint ModelViewProjMat = -1;
+    std::array<GLint, MAX_TEX> Samplers{};
+    std::array<GLint, MAX_TEX> TextureMatrices{};
+    std::array<GLint, MAX_TEX> TextureEnvColors{};
+    std::array<GLint, MAX_TEX> TextureEnvScales{};
+    GLint FogColor = -1;
+    GLint FogDensity = -1;
+    GLint FogStart = -1;
+    GLint FogEnd = -1;
+    GLint LightModelAmbient = -1;
+    std::array<GLint, MAX_LIGHTS> LightAmbient{};
+    std::array<GLint, MAX_LIGHTS> LightDiffuse{};
+    std::array<GLint, MAX_LIGHTS> LightPositions{};
+    GLint AlphaRef = -1;
+    GLint CurrentColor = -1;
+
+    program_uniform_locations_t() {
+        Samplers.fill(-1);
+        TextureMatrices.fill(-1);
+        TextureEnvColors.fill(-1);
+        TextureEnvScales.fill(-1);
+        LightAmbient.fill(-1);
+        LightDiffuse.fill(-1);
+        LightPositions.fill(-1);
+    }
+};
+
 struct program_t {
     std::string vs;
     std::string fs;
 
     int get_program();
+    int id() const { return program; }
+    const program_uniform_locations_t& uniform_locations() const { return uniform_locations_cache; }
 
 private:
     static int compile_shader(GLenum shader_type, const char* src);
     static int link_program(GLuint vs, GLuint fs);
+    void cache_uniform_locations();
     int program = -1;
+    program_uniform_locations_t uniform_locations_cache{};
 };
 
 struct glstate_t {
@@ -279,9 +311,9 @@ struct glstate_t {
 
     static glstate_t& get_instance();
 
-    void send_uniforms(int program);
+    void send_uniforms(const program_t& program);
 
-    std::unique_ptr<XXHash64> p_hash = std::make_unique<XXHash64>(s_hash_seed);
+    XXHash64 p_hash = XXHash64(s_hash_seed);
 
     uint64_t program_hash(bool reset = true);
 

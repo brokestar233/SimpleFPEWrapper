@@ -162,25 +162,20 @@ GLsizei type_size(GLenum type) {
     }
 }
 
-std::vector<uint32_t> quad_to_triangle(int n) {
-    int num_quads = n / 4;
-    int num_indices = num_quads * 6;
+void fill_quad_to_triangle_indices(std::vector<uint32_t>& indices, int vertexCount) {
+    const int quadCount = vertexCount / 4;
+    const int indexCount = quadCount * 6;
+    indices.resize(static_cast<std::size_t>(indexCount));
 
-    std::vector<uint32_t> indices(num_indices, 0);
-
-    for (int i = 0; i < num_quads; i++) {
-        int base_index = i * 4;
-
-        indices[i * 6 + 0] = base_index + 0;
-        indices[i * 6 + 1] = base_index + 1;
-        indices[i * 6 + 2] = base_index + 2;
-
-        indices[i * 6 + 3] = base_index + 2;
-        indices[i * 6 + 4] = base_index + 3;
-        indices[i * 6 + 5] = base_index + 0;
+    for (int i = 0; i < quadCount; ++i) {
+        const int baseIndex = i * 4;
+        indices[i * 6 + 0] = static_cast<uint32_t>(baseIndex + 0);
+        indices[i * 6 + 1] = static_cast<uint32_t>(baseIndex + 1);
+        indices[i * 6 + 2] = static_cast<uint32_t>(baseIndex + 2);
+        indices[i * 6 + 3] = static_cast<uint32_t>(baseIndex + 2);
+        indices[i * 6 + 4] = static_cast<uint32_t>(baseIndex + 3);
+        indices[i * 6 + 5] = static_cast<uint32_t>(baseIndex + 0);
     }
-
-    return indices;
 }
 
 #if DEBUG || GLOBAL_DEBUG
@@ -335,7 +330,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     }
 
     if (*mode == GL_QUADS) {
-        g_glstate.fpe_state.fpe_ib = quad_to_triangle(*count);
+        fill_quad_to_triangle_indices(g_glstate.fpe_state.fpe_ib, *count);
 
         // LOG_D("glBufferData: size = %d, data = 0x%x -> GL_ELEMENT_ARRAY_BUFFER (%d)",
         //      g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t), g_glstate.fpe_state.fpe_ib.data(),
@@ -343,8 +338,10 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
 
         g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
 
-        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t),
-                               g_glstate.fpe_state.fpe_ib.data(), GL_DYNAMIC_DRAW);
+        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                               static_cast<GLsizeiptr>(g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t)),
+                               g_glstate.fpe_state.fpe_ib.data(),
+                               GL_DYNAMIC_DRAW);
 
         *count = g_glstate.fpe_state.fpe_ib.size();
 
@@ -353,7 +350,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
         SFPEWDebugLog("FPE converted quads to triangles new_count=%d", *count);
     }
 
-    g_glstate.send_uniforms(prog_id);
+    g_glstate.send_uniforms(prog);
     SFPEWDrainBackendErrors("fpe.send_uniforms");
     vpa.reset();
     //    vpa.starting_pointer = 0;

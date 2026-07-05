@@ -25,6 +25,7 @@
 extern bool fpe_inited;
 
 int init_fpe();
+void fill_quad_to_triangle_indices(std::vector<uint32_t>& indices, int vertexCount);
 
 // 0 - keep DrawArray, 1 - switch to DrawElements
 int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count);

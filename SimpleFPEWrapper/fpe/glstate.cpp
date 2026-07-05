@@ -12,9 +12,11 @@
 #include <cstdio>
 #define DEBUG 0
 
-void glstate_t::send_uniforms(int program) {
+void glstate_t::send_uniforms(const program_t& program) {
     // LOG()
 
+    const int programId = program.id();
+    const auto& uniforms = program.uniform_locations();
     const auto& mv = fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
     const auto& proj = fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)];
     // LOG_D("GL_MODELVIEW: ")
@@ -25,109 +27,96 @@ void glstate_t::send_uniforms(int program) {
     // TODO: detect change and only set dirty bits here
     g_glFuncs.glBindVertexArray(fpe_state.fpe_vao);
 
-    auto drainUniformStage = [](const std::string& stage) {
-        SFPEWDrainBackendErrors(stage.c_str());
+    auto drainUniformStage = [&](const char* uniformName) {
+        if (!SFPEWIsDebugLoggingEnabled()) {
+            return;
+        }
+        char stage[128];
+        std::snprintf(stage, sizeof(stage), "fpe.uniform.program=%d.%s", programId, uniformName);
+        SFPEWDrainBackendErrors(stage);
     };
 
-    GLint mvmat = g_glFuncs.glGetUniformLocation(program, "ModelViewMat");
-
-    //    GLint projmat = g_glFuncs.glGetUniformLocation(program, "ProjMat");
-    //
-    GLint mat_id = g_glFuncs.glGetUniformLocation(program, "ModelViewProjMat");
-
     const auto mat = proj * mv;
-    if (mvmat >= 0) {
-        g_glFuncs.glUniformMatrix4fv(mvmat, 1, GL_FALSE,
+    if (uniforms.ModelViewMat >= 0) {
+        g_glFuncs.glUniformMatrix4fv(uniforms.ModelViewMat, 1, GL_FALSE,
                                      glm::value_ptr(fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)]));
-        drainUniformStage(std::format("fpe.uniform.program={}.ModelViewMat", program));
+        drainUniformStage("ModelViewMat");
     }
 
-    //    g_glFuncs.glUniformMatrix4fv(projmat, 1, GL_FALSE,
-    //    glm::value_ptr(fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)]));
-    if (mat_id >= 0) {
-        g_glFuncs.glUniformMatrix4fv(mat_id, 1, GL_FALSE, glm::value_ptr(mat));
-        drainUniformStage(std::format("fpe.uniform.program={}.ModelViewProjMat", program));
+    if (uniforms.ModelViewProjMat >= 0) {
+        g_glFuncs.glUniformMatrix4fv(uniforms.ModelViewProjMat, 1, GL_FALSE, glm::value_ptr(mat));
+        drainUniformStage("ModelViewProjMat");
     }
 
     for (int i = 0; i < MAX_TEX; ++i) {
-        const std::string uniformName = std::format("Sampler{}", i);
-        const GLint samplerLocation = g_glFuncs.glGetUniformLocation(program, uniformName.c_str());
-        if (samplerLocation >= 0) {
-            g_glFuncs.glUniform1i(samplerLocation, i);
-            drainUniformStage(std::format("fpe.uniform.program={}.{}", program, uniformName));
+        if (uniforms.Samplers[i] >= 0) {
+            g_glFuncs.glUniform1i(uniforms.Samplers[i], i);
+            char name[32];
+            std::snprintf(name, sizeof(name), "Sampler%d", i);
+            drainUniformStage(name);
         }
 
-        const std::string textureMatrixName = std::format("TextureMat{}", i);
-        const GLint textureMatrixLocation = g_glFuncs.glGetUniformLocation(program, textureMatrixName.c_str());
-        if (textureMatrixLocation >= 0) {
-            g_glFuncs.glUniformMatrix4fv(textureMatrixLocation,
+        if (uniforms.TextureMatrices[i] >= 0) {
+            g_glFuncs.glUniformMatrix4fv(uniforms.TextureMatrices[i],
                                          1,
                                          GL_FALSE,
                                          glm::value_ptr(fpe_uniform.transformation.texture_matrices[i]));
-            drainUniformStage(std::format("fpe.uniform.program={}.{}", program, textureMatrixName));
+            char name[32];
+            std::snprintf(name, sizeof(name), "TextureMat%d", i);
+            drainUniformStage(name);
         }
 
-        const std::string textureEnvColorName = std::format("TextureEnvColor{}", i);
-        const GLint textureEnvColorLocation = g_glFuncs.glGetUniformLocation(program, textureEnvColorName.c_str());
-        if (textureEnvColorLocation >= 0) {
-            g_glFuncs.glUniform4fv(textureEnvColorLocation, 1, glm::value_ptr(fpe_uniform.texture_env[i].color));
-            drainUniformStage(std::format("fpe.uniform.program={}.{}", program, textureEnvColorName));
+        if (uniforms.TextureEnvColors[i] >= 0) {
+            g_glFuncs.glUniform4fv(uniforms.TextureEnvColors[i], 1, glm::value_ptr(fpe_uniform.texture_env[i].color));
+            char name[32];
+            std::snprintf(name, sizeof(name), "TextureEnvColor%d", i);
+            drainUniformStage(name);
         }
 
-        const std::string textureEnvScaleName = std::format("TextureEnvScale{}", i);
-        const GLint textureEnvScaleLocation = g_glFuncs.glGetUniformLocation(program, textureEnvScaleName.c_str());
-        if (textureEnvScaleLocation >= 0) {
+        if (uniforms.TextureEnvScales[i] >= 0) {
             const GLfloat scale[2] = {
                 fpe_uniform.texture_env[i].rgb_scale,
                 fpe_uniform.texture_env[i].alpha_scale,
             };
-            g_glFuncs.glUniform2fv(textureEnvScaleLocation, 1, scale);
-            drainUniformStage(std::format("fpe.uniform.program={}.{}", program, textureEnvScaleName));
+            g_glFuncs.glUniform2fv(uniforms.TextureEnvScales[i], 1, scale);
+            char name[32];
+            std::snprintf(name, sizeof(name), "TextureEnvScale%d", i);
+            drainUniformStage(name);
         }
     }
     SFPEWDebugLog("FPE uniforms program=%d mv_loc=%d mvp_loc=%d alpha_test=%d fog=%d",
-                  program,
-                  mvmat,
-                  mat_id,
+                  programId,
+                  uniforms.ModelViewMat,
+                  uniforms.ModelViewProjMat,
                   fpe_state.fpe_bools.alpha_test_enable ? 1 : 0,
                   fpe_state.fpe_bools.fog_enable ? 1 : 0);
 
     if (fpe_state.fpe_bools.fog_enable) {
-        GLint fogcolor_id = g_glFuncs.glGetUniformLocation(program, "FogColor");
-
-        // LOG_D("fogcolor_id = %d", fogcolor_id)
-        if (fogcolor_id >= 0) {
-            g_glFuncs.glUniform4fv(fogcolor_id, 1, glm::value_ptr(fpe_uniform.fog_color));
-            drainUniformStage(std::format("fpe.uniform.program={}.FogColor", program));
+        if (uniforms.FogColor >= 0) {
+            g_glFuncs.glUniform4fv(uniforms.FogColor, 1, glm::value_ptr(fpe_uniform.fog_color));
+            drainUniformStage("FogColor");
         }
 
-        GLint fogdensity_id = g_glFuncs.glGetUniformLocation(program, "FogDensity");
-
-        if (fogdensity_id >= 0) {
-            g_glFuncs.glUniform1f(fogdensity_id, fpe_uniform.fog_density);
-            drainUniformStage(std::format("fpe.uniform.program={}.FogDensity", program));
+        if (uniforms.FogDensity >= 0) {
+            g_glFuncs.glUniform1f(uniforms.FogDensity, fpe_uniform.fog_density);
+            drainUniformStage("FogDensity");
         }
 
-        GLint fogstart_id = g_glFuncs.glGetUniformLocation(program, "FogStart");
-
-        if (fogstart_id >= 0) {
-            g_glFuncs.glUniform1f(fogstart_id, fpe_uniform.fog_start);
-            drainUniformStage(std::format("fpe.uniform.program={}.FogStart", program));
+        if (uniforms.FogStart >= 0) {
+            g_glFuncs.glUniform1f(uniforms.FogStart, fpe_uniform.fog_start);
+            drainUniformStage("FogStart");
         }
 
-        GLint fogend_id = g_glFuncs.glGetUniformLocation(program, "FogEnd");
-
-        if (fogend_id >= 0) {
-            g_glFuncs.glUniform1f(fogend_id, fpe_uniform.fog_end);
-            drainUniformStage(std::format("fpe.uniform.program={}.FogEnd", program));
+        if (uniforms.FogEnd >= 0) {
+            g_glFuncs.glUniform1f(uniforms.FogEnd, fpe_uniform.fog_end);
+            drainUniformStage("FogEnd");
         }
     }
 
     if (fpe_state.fpe_bools.lighting_enable) {
-        GLint lightModelAmbientId = g_glFuncs.glGetUniformLocation(program, "LightModelAmbient");
-        if (lightModelAmbientId >= 0) {
-            g_glFuncs.glUniform4fv(lightModelAmbientId, 1, glm::value_ptr(fpe_uniform.light_model_ambient));
-            drainUniformStage(std::format("fpe.uniform.program={}.LightModelAmbient", program));
+        if (uniforms.LightModelAmbient >= 0) {
+            g_glFuncs.glUniform4fv(uniforms.LightModelAmbient, 1, glm::value_ptr(fpe_uniform.light_model_ambient));
+            drainUniformStage("LightModelAmbient");
         }
 
         for (int i = 0; i < MAX_LIGHTS; ++i) {
@@ -135,54 +124,50 @@ void glstate_t::send_uniforms(int program) {
                 continue;
             }
 
-            const std::string ambientName = std::format("LightAmbient{}", i);
-            const GLint ambientLocation = g_glFuncs.glGetUniformLocation(program, ambientName.c_str());
-            if (ambientLocation >= 0) {
-                g_glFuncs.glUniform4fv(ambientLocation, 1, glm::value_ptr(fpe_uniform.lights[i].ambient));
-                drainUniformStage(std::format("fpe.uniform.program={}.{}", program, ambientName));
+            if (uniforms.LightAmbient[i] >= 0) {
+                g_glFuncs.glUniform4fv(uniforms.LightAmbient[i], 1, glm::value_ptr(fpe_uniform.lights[i].ambient));
+                char name[32];
+                std::snprintf(name, sizeof(name), "LightAmbient%d", i);
+                drainUniformStage(name);
             }
 
-            const std::string diffuseName = std::format("LightDiffuse{}", i);
-            const GLint diffuseLocation = g_glFuncs.glGetUniformLocation(program, diffuseName.c_str());
-            if (diffuseLocation >= 0) {
-                g_glFuncs.glUniform4fv(diffuseLocation, 1, glm::value_ptr(fpe_uniform.lights[i].diffuse));
-                drainUniformStage(std::format("fpe.uniform.program={}.{}", program, diffuseName));
+            if (uniforms.LightDiffuse[i] >= 0) {
+                g_glFuncs.glUniform4fv(uniforms.LightDiffuse[i], 1, glm::value_ptr(fpe_uniform.lights[i].diffuse));
+                char name[32];
+                std::snprintf(name, sizeof(name), "LightDiffuse%d", i);
+                drainUniformStage(name);
             }
 
-            const std::string positionName = std::format("LightPosition{}", i);
-            const GLint positionLocation = g_glFuncs.glGetUniformLocation(program, positionName.c_str());
-            if (positionLocation >= 0) {
-                g_glFuncs.glUniform4fv(positionLocation, 1, glm::value_ptr(fpe_uniform.lights[i].position));
-                drainUniformStage(std::format("fpe.uniform.program={}.{}", program, positionName));
+            if (uniforms.LightPositions[i] >= 0) {
+                g_glFuncs.glUniform4fv(uniforms.LightPositions[i], 1, glm::value_ptr(fpe_uniform.lights[i].position));
+                char name[32];
+                std::snprintf(name, sizeof(name), "LightPosition%d", i);
+                drainUniformStage(name);
             }
         }
     }
 
     if (fpe_state.fpe_bools.alpha_test_enable) {
-        GLint alpharef_id = g_glFuncs.glGetUniformLocation(program, "alpharef");
-
-        if (alpharef_id >= 0) {
-            g_glFuncs.glUniform1f(alpharef_id, fpe_uniform.alpha_ref);
-            drainUniformStage(std::format("fpe.uniform.program={}.alpharef", program));
+        if (uniforms.AlphaRef >= 0) {
+            g_glFuncs.glUniform1f(uniforms.AlphaRef, fpe_uniform.alpha_ref);
+            drainUniformStage("alpharef");
         }
     }
 
-    GLint currentColorId = g_glFuncs.glGetUniformLocation(program, "CurrentColor");
-    if (currentColorId >= 0) {
-        g_glFuncs.glUniform4fv(currentColorId, 1, glm::value_ptr(fpe_state.fpe_draw.current_data.color));
-        drainUniformStage(std::format("fpe.uniform.program={}.CurrentColor", program));
+    if (uniforms.CurrentColor >= 0) {
+        g_glFuncs.glUniform4fv(uniforms.CurrentColor, 1, glm::value_ptr(fpe_state.fpe_draw.current_data.color));
+        drainUniformStage("CurrentColor");
     }
 }
 
 uint64_t glstate_t::program_hash(bool reset) {
     if (reset) {
-        p_hash.reset();
-        p_hash = std::make_unique<XXHash64>(s_hash_seed);
+        p_hash = XXHash64(s_hash_seed);
     }
 
     vertex_attrib_hash(true);
 
-    auto& hash = *p_hash;
+    auto& hash = p_hash;
 
     hash.add(&fpe_state.client_active_texture, sizeof(fpe_state.client_active_texture));
     hash.add(&fpe_state.alpha_func, sizeof(fpe_state.alpha_func));
@@ -204,11 +189,10 @@ uint64_t glstate_t::program_hash(bool reset) {
 
 uint64_t glstate_t::vertex_attrib_hash(bool reset) {
     if (reset) {
-        p_hash.reset();
-        p_hash = std::make_unique<XXHash64>(s_hash_seed);
+        p_hash = XXHash64(s_hash_seed);
     }
 
-    auto& hash = *p_hash;
+    auto& hash = p_hash;
 
     auto va = fpe_state.vertexpointer_array.normalize();
 

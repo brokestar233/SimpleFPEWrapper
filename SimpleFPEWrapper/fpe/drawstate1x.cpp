@@ -7,13 +7,25 @@
 // End of Source File Header
 
 #include "types.h"
+#include <cstring>
 
 #define DEBUG 0
+
+namespace {
+    void append_bytes(std::vector<std::uint8_t>& buffer, const void* data, std::size_t byteCount) {
+        if (data == nullptr || byteCount == 0) {
+            return;
+        }
+        const std::size_t offset = buffer.size();
+        buffer.resize(offset + byteCount);
+        std::memcpy(buffer.data() + offset, data, byteCount);
+    }
+}
 
 void fixed_function_draw_state_t::reset() {
     primitive = GL_NONE;
     vertex_count = 0;
-    vb.str(std::string()); // clearing vb stringstream
+    vb.clear();
 }
 
 void fixed_function_draw_state_t::advance() {
@@ -23,23 +35,25 @@ void fixed_function_draw_state_t::advance() {
 
     // vertex
     if (sizes.vertex_size > 0) {
-        vb.write((const char*)glm::value_ptr(current_data.vertex), sizeof(GLfloat) * sizes.vertex_size);
+        append_bytes(vb, glm::value_ptr(current_data.vertex), sizeof(GLfloat) * static_cast<std::size_t>(sizes.vertex_size));
     }
 
     // normal
     if (sizes.normal_size > 0) {
-        vb.write((const char*)glm::value_ptr(current_data.normal), sizeof(GLfloat) * sizes.normal_size);
+        append_bytes(vb, glm::value_ptr(current_data.normal), sizeof(GLfloat) * static_cast<std::size_t>(sizes.normal_size));
     }
 
     // color
     if (sizes.color_size > 0) {
-        vb.write((const char*)glm::value_ptr(current_data.color), sizeof(GLfloat) * sizes.color_size);
+        append_bytes(vb, glm::value_ptr(current_data.color), sizeof(GLfloat) * static_cast<std::size_t>(sizes.color_size));
     }
 
     // texcoord
     for (GLint i = 0; i < MAX_TEX; ++i) {
         if (sizes.texcoord_size[i] > 0) {
-            vb.write((const char*)glm::value_ptr(current_data.texcoord[i]), sizeof(GLfloat) * sizes.texcoord_size[i]);
+            append_bytes(vb,
+                         glm::value_ptr(current_data.texcoord[i]),
+                         sizeof(GLfloat) * static_cast<std::size_t>(sizes.texcoord_size[i]));
         }
     }
 

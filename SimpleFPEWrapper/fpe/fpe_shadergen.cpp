@@ -10,6 +10,7 @@
 #include "types.h"
 #include <format>
 #include <string_view>
+#include <cstdio>
 #include <GL/gl.h>
 #include "../init.h"
 
@@ -1797,7 +1798,54 @@ int program_t::get_program() {
     int fss = compile_shader(GL_FRAGMENT_SHADER, fs.c_str());
     if (fss < 0) return fss;
     program = link_program(vss, fss);
+    if (program > 0) {
+        cache_uniform_locations();
+    }
     return program;
+}
+
+void program_t::cache_uniform_locations() {
+    if (program <= 0) {
+        return;
+    }
+
+    uniform_locations_cache = program_uniform_locations_t{};
+
+    uniform_locations_cache.ModelViewMat = g_glFuncs.glGetUniformLocation(program, "ModelViewMat");
+    uniform_locations_cache.ModelViewProjMat = g_glFuncs.glGetUniformLocation(program, "ModelViewProjMat");
+    uniform_locations_cache.FogColor = g_glFuncs.glGetUniformLocation(program, "FogColor");
+    uniform_locations_cache.FogDensity = g_glFuncs.glGetUniformLocation(program, "FogDensity");
+    uniform_locations_cache.FogStart = g_glFuncs.glGetUniformLocation(program, "FogStart");
+    uniform_locations_cache.FogEnd = g_glFuncs.glGetUniformLocation(program, "FogEnd");
+    uniform_locations_cache.LightModelAmbient = g_glFuncs.glGetUniformLocation(program, "LightModelAmbient");
+    uniform_locations_cache.AlphaRef = g_glFuncs.glGetUniformLocation(program, "alpharef");
+    uniform_locations_cache.CurrentColor = g_glFuncs.glGetUniformLocation(program, "CurrentColor");
+
+    char uniformName[48];
+    for (int i = 0; i < MAX_TEX; ++i) {
+        std::snprintf(uniformName, sizeof(uniformName), "Sampler%d", i);
+        uniform_locations_cache.Samplers[i] = g_glFuncs.glGetUniformLocation(program, uniformName);
+
+        std::snprintf(uniformName, sizeof(uniformName), "TextureMat%d", i);
+        uniform_locations_cache.TextureMatrices[i] = g_glFuncs.glGetUniformLocation(program, uniformName);
+
+        std::snprintf(uniformName, sizeof(uniformName), "TextureEnvColor%d", i);
+        uniform_locations_cache.TextureEnvColors[i] = g_glFuncs.glGetUniformLocation(program, uniformName);
+
+        std::snprintf(uniformName, sizeof(uniformName), "TextureEnvScale%d", i);
+        uniform_locations_cache.TextureEnvScales[i] = g_glFuncs.glGetUniformLocation(program, uniformName);
+    }
+
+    for (int i = 0; i < MAX_LIGHTS; ++i) {
+        std::snprintf(uniformName, sizeof(uniformName), "LightAmbient%d", i);
+        uniform_locations_cache.LightAmbient[i] = g_glFuncs.glGetUniformLocation(program, uniformName);
+
+        std::snprintf(uniformName, sizeof(uniformName), "LightDiffuse%d", i);
+        uniform_locations_cache.LightDiffuse[i] = g_glFuncs.glGetUniformLocation(program, uniformName);
+
+        std::snprintf(uniformName, sizeof(uniformName), "LightPosition%d", i);
+        uniform_locations_cache.LightPositions[i] = g_glFuncs.glGetUniformLocation(program, uniformName);
+    }
 }
 
 int program_t::compile_shader(GLenum shader_type, const char* src) {

@@ -14,25 +14,6 @@
 
 #define DEBUG 0
 
-namespace {
-
-std::vector<uint32_t> immediate_quad_to_triangle(std::size_t vertexCount) {
-    const std::size_t quadCount = vertexCount / 4;
-    std::vector<uint32_t> indices(quadCount * 6, 0);
-    for (std::size_t i = 0; i < quadCount; ++i) {
-        const uint32_t base = static_cast<uint32_t>(i * 4);
-        indices[i * 6 + 0] = base + 0;
-        indices[i * 6 + 1] = base + 1;
-        indices[i * 6 + 2] = base + 2;
-        indices[i * 6 + 3] = base + 2;
-        indices[i * 6 + 4] = base + 3;
-        indices[i * 6 + 5] = base + 0;
-    }
-    return indices;
-}
-
-}
-
 void glBegin(GLenum mode) {
     LIST_RECORD(glBegin, {}, mode)
 
@@ -97,7 +78,7 @@ void glEnd() {
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
         SFPEWDrainBackendErrors("immediate.bind_array_buffer");
 
-        auto vbbuf = vb.str();
+        const auto& vbbuf = vb;
         if (SFPEWIsDebugLoggingEnabled() && s.vertex_count > 0) {
             auto logVertex = [&](std::size_t vertexIndex, const char* label) {
                 const std::size_t vertexStride = static_cast<std::size_t>(raw_va.stride);
@@ -144,7 +125,10 @@ void glEnd() {
                 logVertex(1, "vertex1");
             }
         }
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, vbbuf.size(), vbbuf.c_str(), GL_DYNAMIC_DRAW);
+        g_glFuncs.glBufferData(GL_ARRAY_BUFFER,
+                               static_cast<GLsizeiptr>(vbbuf.size()),
+                               vbbuf.empty() ? nullptr : vbbuf.data(),
+                               GL_DYNAMIC_DRAW);
         SFPEWDrainBackendErrors("immediate.buffer_data");
 
         // Vertex Pointer to ES
@@ -153,7 +137,7 @@ void glEnd() {
 
         // Uniform
         {
-            g_glstate.send_uniforms(prog_id);
+            g_glstate.send_uniforms(prog);
             SFPEWDrainBackendErrors("immediate.send_uniforms");
         }
 
@@ -165,7 +149,7 @@ void glEnd() {
 
         if (s.primitive == GL_QUADS) {
             auto& ib = g_glstate.fpe_state.fpe_ib;
-            ib = immediate_quad_to_triangle(s.vertex_count);
+            fill_quad_to_triangle_indices(ib, static_cast<int>(s.vertex_count));
             g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
             SFPEWDrainBackendErrors("immediate.bind_element_array_buffer");
             g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
