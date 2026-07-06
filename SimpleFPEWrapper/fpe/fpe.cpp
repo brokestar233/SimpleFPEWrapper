@@ -16,6 +16,8 @@
 #define DEBUG 0
 
 namespace {
+    EGLContext g_fpe_context = EGL_NO_CONTEXT;
+
     bool AttributeUsesClientMemory(const vertexattribute_t& attr) {
         if (attr.pointer == nullptr || attr.size <= 0) {
             return false;
@@ -205,8 +207,16 @@ void log_vtx_attrib_data(const void* ptr, GLenum type, int size, int stride, int
 
 bool fpe_inited = false;
 int init_fpe() {
+    const EGLContext currentContext =
+        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    if (currentContext == EGL_NO_CONTEXT) {
+        return 0;
+    }
+
     // LOG_I("Initializing fixed-function pipeline...")
 
+    g_glstate.fpe_programs.clear();
+    g_glstate.fpe_vaos.clear();
     g_glstate.last_array_binding_hash_valid = false;
     g_glstate.last_array_binding_vao = 0;
     g_glstate.last_array_binding_hash = 0;
@@ -219,6 +229,10 @@ int init_fpe() {
     g_glstate.backend_current_program = 0;
     g_glstate.backend_vertex_array_binding = 0;
     g_glstate.backend_array_buffer_binding = 0;
+    g_glstate.fpe_state.fpe_vao = 0;
+    g_glstate.fpe_state.fpe_vbo = 0;
+    g_glstate.fpe_state.fpe_ibo = 0;
+    g_glstate.fpe_state.fpe_ib.clear();
 
     g_glFuncs.glGenVertexArrays(1, &g_glstate.fpe_state.fpe_vao);
 
@@ -235,20 +249,35 @@ int init_fpe() {
 
     g_glFuncs.glBindVertexArray(0);
     g_glstate.backend_vertex_array_binding = 0;
+    g_fpe_context = currentContext;
     SFPEWDebugLog("FPE init vao=%u vbo=%u ibo=%u", g_glstate.fpe_state.fpe_vao, g_glstate.fpe_state.fpe_vbo,
                   g_glstate.fpe_state.fpe_ibo);
 
     return 0;
 }
 
+bool ensure_fpe_ready() {
+    const EGLContext currentContext =
+        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    if (currentContext == EGL_NO_CONTEXT) {
+        return false;
+    }
+
+    if (!fpe_inited || g_fpe_context != currentContext) {
+        if (init_fpe() != 0) {
+            return false;
+        }
+        fpe_inited = true;
+    }
+
+    return true;
+}
+
 int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     // LOG()
 
-    if (!fpe_inited) {
-        if (init_fpe() != 0)
-            abort();
-        else
-            fpe_inited = true;
+    if (!ensure_fpe_ready()) {
+        return 0;
     }
 
     // Need to generate_compressed_index first (shadergen will use that)

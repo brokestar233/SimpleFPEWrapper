@@ -32,6 +32,7 @@ inline void mark_shader_state_dirty() {
 extern bool fpe_inited;
 
 int init_fpe();
+bool ensure_fpe_ready();
 void fill_quad_to_triangle_indices(std::vector<uint32_t>& indices, int vertexCount);
 
 // 0 - keep DrawArray, 1 - switch to DrawElements

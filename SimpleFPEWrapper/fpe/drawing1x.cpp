@@ -17,11 +17,8 @@
 void glBegin(GLenum mode) {
     LIST_RECORD(glBegin, {}, mode)
 
-    if (!fpe_inited) {
-        if (init_fpe() != 0)
-            abort();
-        else
-            fpe_inited = true;
+    if (!ensure_fpe_ready()) {
+        return;
     }
 
     auto& gls = g_glstate;
