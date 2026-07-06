@@ -32,6 +32,26 @@ namespace {
 
         return strideBytes;
     }
+
+    bool IsVertex3Tex2OnlyLayout(const fixed_function_draw_size_t& sizes) {
+        if (sizes.vertex_size != 3 ||
+            sizes.normal_size != 0 ||
+            sizes.color_size != 0 ||
+            sizes.index_size != 0 ||
+            sizes.edge_size != 0 ||
+            sizes.fog_size != 0 ||
+            sizes.secondary_color_size != 0 ||
+            sizes.texcoord_size[0] != 2) {
+            return false;
+        }
+
+        for (GLint i = 1; i < MAX_TEX; ++i) {
+            if (sizes.texcoord_size[i] != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
 }
 
 void fixed_function_draw_state_t::reset() {
@@ -59,6 +79,18 @@ void fixed_function_draw_state_t::advance() {
     const std::size_t offset = vb.size();
     vb.resize(offset + vertexStrideBytes);
     auto* cursor = vb.data() + offset;
+
+    if (IsVertex3Tex2OnlyLayout(sizes)) {
+        auto* dst = reinterpret_cast<GLfloat*>(cursor);
+        const auto* position = glm::value_ptr(current_data.vertex);
+        const auto* texcoord0 = glm::value_ptr(current_data.texcoord[0]);
+        dst[0] = position[0];
+        dst[1] = position[1];
+        dst[2] = position[2];
+        dst[3] = texcoord0[0];
+        dst[4] = texcoord0[1];
+        return;
+    }
 
     // vertex
     if (sizes.vertex_size > 0) {
