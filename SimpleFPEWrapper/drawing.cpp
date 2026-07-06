@@ -152,6 +152,66 @@ bool BuildPackedClientArrayLayoutForDisplayList(const vertex_pointer_array_t& so
     return true;
 }
 
+fixed_function_draw_data_t MergeReplayCurrentData(const fixed_function_draw_data_t& runtimeData,
+                                                  const fixed_function_draw_data_t& snapshotData,
+                                                  const vertex_pointer_array_t& snapshotLayout) {
+    auto merged = runtimeData;
+
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        const bool enabled = ((snapshotLayout.enabled_pointers >> i) & 1) != 0;
+        if (enabled) {
+            continue;
+        }
+
+        const GLint snapshotSize = size_for_attribute_index(snapshotData.sizes, i);
+        if (snapshotSize <= 0) {
+            continue;
+        }
+
+        switch (i) {
+        case 1:
+            if (merged.sizes.normal_size == 0) {
+                merged.sizes.normal_size = snapshotSize;
+            }
+            break;
+        case 2:
+            if (merged.sizes.color_size == 0) {
+                merged.sizes.color_size = snapshotSize;
+            }
+            break;
+        case 3:
+            if (merged.sizes.index_size == 0) {
+                merged.sizes.index_size = snapshotSize;
+            }
+            break;
+        case 4:
+            if (merged.sizes.edge_size == 0) {
+                merged.sizes.edge_size = snapshotSize;
+            }
+            break;
+        case 5:
+            if (merged.sizes.fog_size == 0) {
+                merged.sizes.fog_size = snapshotSize;
+            }
+            break;
+        case 6:
+            if (merged.sizes.secondary_color_size == 0) {
+                merged.sizes.secondary_color_size = snapshotSize;
+            }
+            break;
+        default: {
+            const int texIndex = i - 7;
+            if (texIndex >= 0 && texIndex < MAX_TEX && merged.sizes.texcoord_size[texIndex] == 0) {
+                merged.sizes.texcoord_size[texIndex] = snapshotSize;
+            }
+            break;
+        }
+        }
+    }
+
+    return merged;
+}
+
 void sfpew_list_glDrawArrays(GLenum mode, GLint first, GLsizei count);
 
 class DisplayListDrawArraysSnapshotCmd final : public GLCmd {
@@ -183,7 +243,7 @@ public:
         snapshot.buffer_based = true;
 
         g_glstate.fpe_state.vertexpointer_array = snapshot;
-        g_glstate.fpe_state.fpe_draw.current_data = currentData_;
+        g_glstate.fpe_state.fpe_draw.current_data = MergeReplayCurrentData(savedCurrentData, currentData_, snapshot);
         sfpew_list_glDrawArrays(mode_, 0, count_);
         g_glstate.fpe_state.fpe_draw.current_data = savedCurrentData;
         g_glstate.fpe_state.vertexpointer_array = saved;
